@@ -12,6 +12,7 @@ Wayland-native screenshot and screen-recording suite for Linux.
 - XDG save paths (`~/Pictures/Screenshots`, `~/Videos/MatrixShot`)
 - Recording via `gpu-screen-recorder` (start/stop/toggle/status)
 - Opens captures with `imv` (configurable)
+- Edit opens a Quickshell annotation widget (not Krita/GIMP)
 - Manual-only uploads (disabled by default)
 
 ## Privacy

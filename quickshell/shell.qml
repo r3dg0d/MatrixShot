@@ -10,6 +10,7 @@ Scope {
 
     property var preview: ({})
     property var recording: ({ active: false, startedAt: 0, path: "" })
+    property string editPath: ""
 
     FileView {
         id: previewFile
@@ -17,11 +18,8 @@ Scope {
         watchChanges: true
         onFileChanged: previewFile.reload()
         onLoaded: {
-            try {
-                root.preview = JSON.parse(previewFile.text())
-            } catch (e) {
-                root.preview = ({})
-            }
+            try { root.preview = JSON.parse(previewFile.text()) }
+            catch (e) { root.preview = ({}) }
         }
     }
 
@@ -31,18 +29,35 @@ Scope {
         watchChanges: true
         onFileChanged: recordFile.reload()
         onLoaded: {
-            try {
-                root.recording = JSON.parse(recordFile.text())
-            } catch (e) {
-                root.recording = ({ active: false })
-            }
+            try { root.recording = JSON.parse(recordFile.text()) }
+            catch (e) { root.recording = ({ active: false }) }
         }
     }
 
-    // Screenshot preview card — top-right, non-focus-stealing overlay
+    FileView {
+        id: editRequest
+        path: Quickshell.env("HOME") + "/.local/state/matrixshot/edit.json"
+        watchChanges: true
+        onFileChanged: editRequest.reload()
+        onLoaded: {
+            try {
+                const j = JSON.parse(editRequest.text())
+                if (j && j.path) root.editPath = j.path
+            } catch (e) {}
+        }
+    }
+
+    function openEditor(path) {
+        dismiss.stop()
+        root.preview = ({})
+        root.editPath = path
+        Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/preview.json"])
+    }
+
+    // Screenshot preview card — top-right
     PanelWindow {
         id: previewWin
-        visible: !!(root.preview && root.preview.path)
+        visible: !!(root.preview && root.preview.path) && root.editPath.length === 0
         screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
@@ -109,7 +124,7 @@ Scope {
                     Button { text: "Folder"; onClicked: Quickshell.execDetached(["matrixshot", "folder"]) }
                     Button {
                         text: "Edit"
-                        onClicked: Quickshell.execDetached(["sh", "-c", "command -v gimp >/dev/null && gimp \"$1\" || command -v krita >/dev/null && krita \"$1\" || imv \"$1\"", "sh", root.preview.path])
+                        onClicked: root.openEditor(root.preview.path)
                     }
                     Button {
                         text: "Upload"
@@ -127,7 +142,6 @@ Scope {
                     Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/preview.json"])
                 }
             }
-            // pause timer while hovering
             MouseArea {
                 anchors.fill: parent
                 hoverEnabled: true
@@ -135,6 +149,19 @@ Scope {
                 onEntered: dismiss.stop()
                 onExited: { if (previewWin.visible) dismiss.restart() }
             }
+        }
+    }
+
+    Editor {
+        imagePath: root.editPath
+        onClosed: {
+            root.editPath = ""
+            Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/edit.json"])
+        }
+        onSaved: (path) => {
+            Quickshell.execDetached(["bash", "-lc", "printf '%s\\n' screenshot \"" + path + "\" > \"$HOME/.local/state/matrixshot/last\""])
+            root.editPath = ""
+            root.preview = ({ path: path, name: path.split("/").pop(), dims: "", timeout: 10 })
         }
     }
 
@@ -166,16 +193,8 @@ Scope {
                 anchors.centerIn: parent
                 spacing: 10
                 Text { text: "● REC"; color: "#ff3333"; font.bold: true; font.pixelSize: 14 }
-                Text {
-                    id: elapsed
-                    color: "#eeeeee"
-                    font.pixelSize: 14
-                    text: "00:00:00"
-                }
-                Button {
-                    text: "Stop"
-                    onClicked: Quickshell.execDetached(["matrixshot", "record", "stop"])
-                }
+                Text { id: elapsed; color: "#eeeeee"; font.pixelSize: 14; text: "00:00:00" }
+                Button { text: "Stop"; onClicked: Quickshell.execDetached(["matrixshot", "record", "stop"]) }
             }
 
             Timer {
