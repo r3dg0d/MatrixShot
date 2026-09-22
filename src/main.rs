@@ -217,6 +217,7 @@ fn record_stop() -> Result<()> {
     }
     let out = fs::read_to_string(record_out_file()).unwrap_or_default();
     let _ = fs::remove_file(&pidf);
+    let _ = Command::new("matrixshot-rec-ui").arg("stop").status();
     if !out.trim().is_empty() {
         write_last("recording", Path::new(out.trim()))?;
         println!("{}", out.trim());
@@ -282,6 +283,7 @@ fn record_start(cfg: &Config, mode: &str) -> Result<()> {
         .spawn()
         .context("spawn gpu-screen-recorder")?;
     fs::write(record_pid_file(), child.id().to_string())?;
+    let _ = Command::new("matrixshot-rec-ui").args(["start", &out.display().to_string()]).status();
     println!("recording -> {}", out.display());
     Ok(())
 }
