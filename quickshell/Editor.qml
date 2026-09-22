@@ -8,8 +8,8 @@ PanelWindow {
     id: editorWin
 
     required property string imagePath
-    signal closed()
-    signal saved(string path)
+    signal editorClosed()
+    signal editorSaved(string path)
 
     visible: imagePath.length > 0
     screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
@@ -17,7 +17,12 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     exclusiveZone: 0
     color: "#cc000000"
-    anchors { fill: true }
+    anchors {
+        top: true
+        left: true
+        right: true
+        bottom: true
+    }
 
     property string tool: "pen" // pen | rect | arrow | highlight | text
     property color ink: "#00ff00"
@@ -134,7 +139,7 @@ PanelWindow {
                     elide: Text.ElideMiddle
                     Layout.maximumWidth: 360
                 }
-                Button { text: "Close"; onClicked: editorWin.closed() }
+                Button { text: "Close"; onClicked: editorWin.editorClosed() }
             }
 
             RowLayout {
@@ -182,7 +187,7 @@ PanelWindow {
                         const base = imagePath.replace(/\.png$/i, "")
                         const out = base + "-edited.png"
                         if (result.saveToFile(out)) {
-                            editorWin.saved(out)
+                            editorWin.editorSaved(out)
                             Quickshell.execDetached(["bash", "-lc", "wl-copy -t image/png < " + JSON.stringify(out)])
                         }
                     })
@@ -318,7 +323,7 @@ PanelWindow {
                     event.accepted = true
                     return
                 }
-                editorWin.closed()
+                editorWin.editorClosed()
                 event.accepted = true
             } else if (event.key === Qt.Key_Z && (event.modifiers & Qt.ControlModifier)) {
                 undo(); event.accepted = true

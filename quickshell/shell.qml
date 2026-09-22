@@ -154,11 +154,11 @@ Scope {
 
     Editor {
         imagePath: root.editPath
-        onClosed: {
+        onEditorClosed: {
             root.editPath = ""
             Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/edit.json"])
         }
-        onSaved: (path) => {
+        onEditorSaved: (path) => {
             Quickshell.execDetached(["bash", "-lc", "printf '%s\\n' screenshot \"" + path + "\" > \"$HOME/.local/state/matrixshot/last\""])
             root.editPath = ""
             root.preview = ({ path: path, name: path.split("/").pop(), dims: "", timeout: 10 })

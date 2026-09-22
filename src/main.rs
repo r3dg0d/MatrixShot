@@ -45,6 +45,20 @@ enum RecordCmd {
     Status,
 }
 
+
+fn sibling_bin(name: &str) -> std::path::PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    // Fall back to PATH lookup (system wrappers after NixOS rebuild).
+    std::path::PathBuf::from(name)
+}
+
 fn xdg_pictures() -> PathBuf {
     directories::UserDirs::new()
         .and_then(|u| u.picture_dir().map(|p| p.to_path_buf()))
@@ -142,7 +156,7 @@ fn screenshot_region(cfg: &Config) -> Result<PathBuf> {
 
     write_last("screenshot", &out)?;
     // Optional Quickshell preview hook (non-fatal if missing).
-    let _ = Command::new("matrixshot-preview")
+    let _ = Command::new(sibling_bin("matrixshot-preview"))
         .arg(&out)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -168,7 +182,7 @@ fn screenshot_fullscreen(cfg: &Config) -> Result<PathBuf> {
             .status();
     }
     write_last("screenshot", &out)?;
-    let _ = Command::new("matrixshot-preview").arg(&out).spawn();
+    let _ = Command::new(sibling_bin("matrixshot-preview")).arg(&out).spawn();
     println!("{}", out.display());
     Ok(out)
 }
