@@ -1,0 +1,21 @@
+[package]
+name = "matrixshot"
+version = "0.1.0"
+edition = "2021"
+description = "Wayland screenshot + screen-recording suite"
+license = "MIT"
+repository = "https://github.com/r3dg0d/MatrixShot"
+readme = "README.md"
+
+[[bin]]
+name = "matrixshot"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+directories = "5"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+which = "6"
