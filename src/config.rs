@@ -56,8 +56,11 @@ pub struct Recording {
 #[serde(default)]
 pub struct Upload {
     pub enabled: bool,
+    /// Provider id: "catbox" (default), "0x0", "litterbox", or "imgur".
     pub provider: String,
     pub copy_url: bool,
+    /// Optional Imgur anonymous client id (only for provider = "imgur").
+    pub imgur_client_id: String,
 }
 
 impl Default for Config {
@@ -118,9 +121,10 @@ impl Default for Recording {
 impl Default for Upload {
     fn default() -> Self {
         Self {
-            enabled: false,
-            provider: "imgur".into(),
+            enabled: true,
+            provider: "catbox".into(),
             copy_url: true,
+            imgur_client_id: String::new(),
         }
     }
 }

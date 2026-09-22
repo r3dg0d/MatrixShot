@@ -46,6 +46,21 @@ nix flake check
 
 `grim`, `slurp`, `wl-clipboard`, `gpu-screen-recorder`, `imv` (viewer).
 
+
+## Upload
+
+Preview **Upload** posts the last capture and copies the URL to the clipboard (`wl-copy`).
+
+```toml
+[upload]
+enabled = true
+provider = "catbox"   # catbox | 0x0 | litterbox | imgur
+copy_url = true
+imgur_client_id = ""  # required only for imgur
+```
+
+MatrixShot tries the configured provider first, then falls back to `catbox` → `0x0` → `litterbox` if the host errors.
+
 ## License
 
 MIT

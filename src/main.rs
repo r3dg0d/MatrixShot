@@ -25,7 +25,7 @@ enum Cmd {
     OpenLast,
     /// Open folder containing last screenshot
     Folder,
-    /// Upload last capture (manual only; disabled by default)
+    /// Upload last capture and copy the URL (provider from config)
     UploadLast,
     /// Show / init config path
     Config,
@@ -302,6 +302,222 @@ fn record_start(cfg: &Config, mode: &str) -> Result<()> {
     Ok(())
 }
 
+
+fn write_upload_state(status: &str, url: &str, error: &str) -> Result<()> {
+    let d = state_dir();
+    ensure_dir(&d)?;
+    let body = format!(
+        "{{\"status\":{},\"url\":{},\"error\":{},\"ts\":{}}}",
+        serde_json_str(status),
+        serde_json_str(url),
+        serde_json_str(error),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    );
+    fs::write(d.join("upload.json"), body)?;
+    Ok(())
+}
+
+fn serde_json_str(s: &str) -> String {
+    let mut out = String::from("\"");
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn notify(summary: &str, body: &str) {
+    let _ = Command::new("notify-send")
+        .args(["-a", "MatrixShot", summary, body])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+}
+
+fn upload_last(cfg: &Config) -> Result<()> {
+    if !cfg.upload.enabled {
+        let msg = "uploads disabled in config (set [upload] enabled = true)";
+        let _ = write_upload_state("error", "", msg);
+        bail!("{msg}");
+    }
+    let (_kind, path) = read_last()?;
+    if !path.is_file() {
+        bail!("last capture missing: {}", path.display());
+    }
+    let _ = write_upload_state("uploading", "", "");
+    notify("MatrixShot", "Uploading screenshot…");
+
+    let curl = require_bin("curl")?;
+    let primary = cfg.upload.provider.to_lowercase();
+    // Prefer configured provider, then fall back so a flaky host doesn't brick Upload.
+    let mut providers: Vec<&str> = Vec::new();
+    for p in [primary.as_str(), "catbox", "0x0", "litterbox"] {
+        if !providers.iter().any(|x| *x == p) {
+            providers.push(p);
+        }
+    }
+
+    let mut last_err = String::from("all upload providers failed");
+    let mut url: Option<String> = None;
+    let mut used = String::new();
+
+    for provider in providers {
+        let result = match provider {
+            "0x0" | "0x0.st" => Command::new(&curl)
+                .args([
+                    "-sS",
+                    "-f",
+                    "--connect-timeout",
+                    "15",
+                    "--max-time",
+                    "120",
+                    "-F",
+                    &format!("file=@{}", path.display()),
+                    "https://0x0.st",
+                ])
+                .output(),
+            "catbox" => Command::new(&curl)
+                .args([
+                    "-sS",
+                    "-f",
+                    "--connect-timeout",
+                    "15",
+                    "--max-time",
+                    "120",
+                    "-F",
+                    "reqtype=fileupload",
+                    "-F",
+                    &format!("fileToUpload=@{}", path.display()),
+                    "https://catbox.moe/user/api.php",
+                ])
+                .output(),
+            "litterbox" => Command::new(&curl)
+                .args([
+                    "-sS",
+                    "-f",
+                    "--connect-timeout",
+                    "15",
+                    "--max-time",
+                    "120",
+                    "-F",
+                    "reqtype=fileupload",
+                    "-F",
+                    "time=72h",
+                    "-F",
+                    &format!("fileToUpload=@{}", path.display()),
+                    "https://litterbox.catbox.moe/resources/internals/api.php",
+                ])
+                .output(),
+            "imgur" => {
+                if cfg.upload.imgur_client_id.trim().is_empty() {
+                    last_err = "imgur needs [upload] imgur_client_id in config".into();
+                    continue;
+                }
+                Command::new(&curl)
+                    .args([
+                        "-sS",
+                        "-f",
+                        "--connect-timeout",
+                        "15",
+                        "--max-time",
+                        "120",
+                        "-H",
+                        &format!("Authorization: Client-ID {}", cfg.upload.imgur_client_id.trim()),
+                        "-F",
+                        &format!("image=@{}", path.display()),
+                        "https://api.imgur.com/3/image",
+                    ])
+                    .output()
+            }
+            other => {
+                last_err = format!("unknown upload provider: {other}");
+                continue;
+            }
+        };
+
+        let output = match result {
+            Ok(o) => o,
+            Err(e) => {
+                last_err = format!("{provider}: {e}");
+                continue;
+            }
+        };
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            last_err = if err.is_empty() {
+                format!("{provider}: HTTP/curl failure")
+            } else {
+                format!("{provider}: {err}")
+            };
+            continue;
+        }
+
+        let body = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let parsed = if provider == "imgur" {
+            body.split("\"link\":\"")
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+                .map(|s| s.replace("\\/", "/"))
+                .filter(|s| s.starts_with("http"))
+        } else {
+            body.lines()
+                .find(|l| l.starts_with("http"))
+                .map(|s| s.trim().to_string())
+                .filter(|s| s.starts_with("http"))
+        };
+        match parsed {
+            Some(u) => {
+                url = Some(u);
+                used = provider.to_string();
+                break;
+            }
+            None => {
+                last_err = format!("{provider}: non-URL response: {body}");
+            }
+        }
+    }
+
+    let url = match url {
+        Some(u) => u,
+        None => {
+            let _ = write_upload_state("error", "", &last_err);
+            notify("MatrixShot upload failed", &last_err);
+            bail!("{last_err}");
+        }
+    };
+
+    if cfg.upload.copy_url {
+        let wl_copy = require_bin("wl-copy")?;
+        let status = Command::new(&wl_copy)
+            .arg(&url)
+            .status()
+            .context("wl-copy url")?;
+        if !status.success() {
+            let msg = "uploaded but failed to copy URL to clipboard";
+            let _ = write_upload_state("ok", &url, msg);
+            notify("MatrixShot", &format!("Uploaded via {used} (clipboard failed):\n{url}"));
+            println!("{url}");
+            return Ok(());
+        }
+    }
+
+    let _ = write_upload_state("ok", &url, "");
+    notify("MatrixShot", &format!("URL copied ({used}):\n{url}"));
+    println!("{url}");
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let cfg = Config::load_or_init()?;
@@ -327,10 +543,7 @@ fn main() -> Result<()> {
             }
         }
         Cmd::UploadLast => {
-            if !cfg.upload.enabled {
-                bail!("uploads disabled in config (set [upload] enabled=true)");
-            }
-            bail!("upload providers not configured yet — local file left untouched");
+            upload_last(&cfg)?;
         }
         Cmd::Config => {
             println!("{}", Config::path().display());
