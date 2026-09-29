@@ -274,17 +274,16 @@ fn record_start(cfg: &Config, mode: &str) -> Result<()> {
         "-o".into(),
         out.display().to_string(),
     ]);
+    // Stable PipeWire logical names — never parse `--list-audio-devices` from
+    // a PATH wrapper that may prepend capture flags (that turned usage text
+    // into a bogus `-a` and aborted recording). Ambxst uses the same IDs.
     if cfg.recording.audio {
-        // default device list discovery — empty means let gsr pick if supported;
-        // user can set explicit sinks later. Use --list-audio-devices offline.
-        if let Ok(outp) = Command::new(&gsr).arg("--list-audio-devices").output() {
-            let text = String::from_utf8_lossy(&outp.stdout);
-            // Prefer a non-monitor? Keep simple: first default-looking line.
-            if let Some(line) = text.lines().find(|l| !l.trim().is_empty()) {
-                args.push("-a".into());
-                args.push(line.trim().to_string());
-            }
-        }
+        args.push("-a".into());
+        args.push("default_output".into());
+    }
+    if cfg.recording.microphone {
+        args.push("-a".into());
+        args.push("default_input".into());
     }
 
     ensure_dir(&state_dir())?;
