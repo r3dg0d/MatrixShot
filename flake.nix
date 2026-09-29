@@ -8,7 +8,7 @@
     in {
       packages.${system}.default = pkgs.rustPlatform.buildRustPackage {
         pname = "matrixshot";
-        version = "0.2.1";
+        version = "0.2.3";
         src = ./.;
         cargoLock.lockFile = ./Cargo.lock;
         meta = with pkgs.lib; {

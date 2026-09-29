@@ -15,7 +15,7 @@
 , matrixshotSrc ? null
 }:
 let
-  version = "0.2.1";
+  version = "0.2.3";
 
   # Prefer explicit src (Projects path / flake); fall back to files next to this
   # expression when vendored under packages/matrixshot.

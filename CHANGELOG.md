@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3 — 2026-09-29
+- Fix upload hangs: parallel race across providers with `--connect-timeout 3` / `--max-time 45` / `-4`
+- Default provider `uguu` (catbox/litterbox often TCP-blackhole; 0x0 currently 503 uploads-disabled)
+- Race catbox / 0x0 / litterbox in parallel; `tmpfiles` / `imgur` remain opt-in; clearer multi-host errors
+- `require_bin` falls back to `~/.local/bin` and NixOS `/run/current-system/sw/bin` (Hyprland PATH)
+
 ## 0.2.2 — 2026-09-29
 - Fix Quickshell overlay crash: rename theme id `T` → `theme` (QML/Quickshell forbids IDs starting with uppercase), restoring Screenshot | Screen Record chooser
 

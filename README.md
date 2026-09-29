@@ -5,7 +5,7 @@ Wayland-native screenshot and screen-recording suite with a Matrix-themed Quicks
 **Print** → region select → **Screenshot | Screen Record** chooser (fast shot path, no extra confirm).
 Ambxst keeps `SUPER+S` / `SUPER+SHIFT+S` / `SUPER+SHIFT+R` — do not steal those binds.
 
-**Status:** v0.2.2 — chooser + record config UI, stable audio IDs, codec `-k`, focused-monitor vs fullscreen, Nix packaging ready.
+**Status:** v0.2.3 — fast upload race (uguu default + catbox/0x0/litterbox/tmpfiles failover), chooser + record UI, Nix packaging ready.
 
 ## Features
 
@@ -14,7 +14,7 @@ Ambxst keeps `SUPER+S` / `SUPER+SHIFT+S` / `SUPER+SHIFT+R` — do not steal thos
 - Compact recording config (fps, audio none/desktop/mic/both, output dir)
 - gpu-screen-recorder orchestration with REC indicator overlay
 - Quickshell annotation editor (pen / highlight / rect / arrow / text)
-- Upload last capture (catbox / 0x0 / litterbox / imgur)
+- Upload last capture (uguu default; races catbox / 0x0 / litterbox; copies URL via wl-copy)
 
 ## CLI
 

@@ -146,7 +146,21 @@ fn read_last() -> Result<(String, PathBuf)> {
 }
 
 fn require_bin(name: &str) -> Result<PathBuf> {
-    which::which(name).with_context(|| format!("missing dependency: {name}"))
+    if let Ok(p) = which::which(name) {
+        return Ok(p);
+    }
+    // Hyprland sessions often omit ~/.local/bin from PATH.
+    if let Some(home) = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()) {
+        let local = home.join(".local/bin").join(name);
+        if local.is_file() {
+            return Ok(local);
+        }
+    }
+    let nix = PathBuf::from("/run/current-system/sw/bin").join(name);
+    if nix.is_file() {
+        return Ok(nix);
+    }
+    bail!("missing dependency: {name}")
 }
 
 fn slurp_border(cfg: &Config) -> String {
@@ -588,6 +602,191 @@ fn notify(summary: &str, body: &str) {
         .spawn();
 }
 
+fn curl_base(curl: &Path) -> Command {
+    let mut cmd = Command::new(curl);
+    // Short connect so dead hosts (catbox from many networks) fail fast.
+    // No -f: keep response bodies for clear errors (e.g. 0x0 503).
+    // -4: prefer IPv4; avoids IPv6 stalls on dual-stack hosts.
+    cmd.args([
+        "-sS",
+        "--connect-timeout",
+        "3",
+        "--max-time",
+        "45",
+        "-4",
+    ]);
+    cmd
+}
+
+fn parse_http_url(body: &str) -> Option<String> {
+    body.lines()
+        .map(str::trim)
+        .find(|l| l.starts_with("http://") || l.starts_with("https://"))
+        .map(|s| s.trim_end_matches(['\r', '\n', ' ', '\t', '"', '\'']).to_string())
+}
+
+/// Extract a JSON string value for key `"name"` (tolerates pretty-printed spaces).
+fn json_string_field(body: &str, name: &str) -> Option<String> {
+    let needle = format!("\"{name}\"");
+    let mut rest = body;
+    while let Some(idx) = rest.find(&needle) {
+        rest = &rest[idx + needle.len()..];
+        let trimmed = rest.trim_start();
+        if !trimmed.starts_with(':') {
+            continue;
+        }
+        let after = trimmed[1..].trim_start();
+        let Some(s) = after.strip_prefix('"') else {
+            continue;
+        };
+        let mut out = String::new();
+        let mut chars = s.chars();
+        while let Some(c) = chars.next() {
+            match c {
+                '"' => {
+                    return Some(out.replace("\\/", "/"));
+                }
+                '\\' => {
+                    if let Some(n) = chars.next() {
+                        out.push(n);
+                    }
+                }
+                c => out.push(c),
+            }
+        }
+    }
+    None
+}
+
+fn parse_uguu_url(body: &str) -> Option<String> {
+    json_string_field(body, "url").filter(|s| s.starts_with("http"))
+}
+
+fn parse_tmpfiles_url(body: &str) -> Option<String> {
+    let page = json_string_field(body, "url").filter(|s| s.starts_with("http"))?;
+    if let Some(rest) = page.strip_prefix("https://tmpfiles.org/") {
+        if !rest.starts_with("dl/") {
+            return Some(format!("https://tmpfiles.org/dl/{rest}"));
+        }
+    }
+    Some(page)
+}
+
+fn parse_imgur_url(body: &str) -> Option<String> {
+    json_string_field(body, "link").filter(|s| s.starts_with("http"))
+}
+
+fn upload_one(curl: &Path, provider: &str, path: &Path, imgur_client_id: &str) -> Result<String, String> {
+    let file = path.display().to_string();
+    let result = match provider {
+        "uguu" | "uguu.se" => curl_base(curl)
+            .args(["-F", &format!("files[]=@{file}"), "https://uguu.se/upload"])
+            .output(),
+        "catbox" => curl_base(curl)
+            .args([
+                "-F",
+                "reqtype=fileupload",
+                "-F",
+                &format!("fileToUpload=@{file}"),
+                "https://catbox.moe/user/api.php",
+            ])
+            .output(),
+        "0x0" | "0x0.st" => curl_base(curl)
+            .args(["-F", &format!("file=@{file}"), "https://0x0.st"])
+            .output(),
+        "litterbox" => curl_base(curl)
+            .args([
+                "-F",
+                "reqtype=fileupload",
+                "-F",
+                "time=72h",
+                "-F",
+                &format!("fileToUpload=@{file}"),
+                "https://litterbox.catbox.moe/resources/internals/api.php",
+            ])
+            .output(),
+        "tmpfiles" | "tmpfiles.org" => curl_base(curl)
+            .args([
+                "-F",
+                &format!("file=@{file}"),
+                "https://tmpfiles.org/api/v1/upload",
+            ])
+            .output(),
+        "imgur" => {
+            if imgur_client_id.trim().is_empty() {
+                return Err("imgur needs [upload] imgur_client_id in config".into());
+            }
+            curl_base(curl)
+                .args([
+                    "-H",
+                    &format!("Authorization: Client-ID {}", imgur_client_id.trim()),
+                    "-F",
+                    &format!("image=@{file}"),
+                    "https://api.imgur.com/3/image",
+                ])
+                .output()
+        }
+        other => return Err(format!("unknown upload provider: {other}")),
+    };
+
+    let output = match result {
+        Ok(o) => o,
+        Err(e) => return Err(format!("spawn curl: {e}")),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+
+    if !output.status.success() {
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout.chars().take(200).collect()
+        } else {
+            "HTTP/curl failure".into()
+        };
+        return Err(detail);
+    }
+
+    let parsed = match provider {
+        "uguu" | "uguu.se" => parse_uguu_url(&stdout),
+        "tmpfiles" | "tmpfiles.org" => parse_tmpfiles_url(&stdout),
+        "imgur" => parse_imgur_url(&stdout),
+        _ => parse_http_url(&stdout),
+    };
+
+    match parsed {
+        Some(u) => Ok(u),
+        None => {
+            let snippet: String = stdout.chars().take(180).collect();
+            if snippet.is_empty() {
+                Err("empty response".into())
+            } else {
+                Err(format!("non-URL response: {snippet}"))
+            }
+        }
+    }
+}
+
+fn provider_race_order(primary: &str) -> Vec<String> {
+    // Race anonymous hosts together. Catbox/litterbox often blackhole-timeout;
+    // 0x0 currently returns 503 (uploads disabled). uguu is typically the
+    // fastest working host — it wins the race without waiting on dead peers.
+    let mut out: Vec<String> = Vec::new();
+    let primary = primary.to_lowercase();
+    if !primary.is_empty() && primary != "imgur" {
+        out.push(primary);
+    }
+    // tmpfiles is opt-in only: uploads fast but returns HTML landing pages,
+    // not direct image URLs — poor for screenshot sharing.
+    for p in ["uguu", "catbox", "0x0", "litterbox"] {
+        if !out.iter().any(|x| x == p) {
+            out.push(p.to_string());
+        }
+    }
+    out
+}
+
 fn upload_last(cfg: &Config) -> Result<()> {
     if !cfg.upload.enabled {
         let msg = "uploads disabled in config (set [upload] enabled = true)";
@@ -602,108 +801,53 @@ fn upload_last(cfg: &Config) -> Result<()> {
     notify("MatrixShot", "Uploading screenshot…");
 
     let curl = require_bin("curl")?;
-    let primary = cfg.upload.provider.to_lowercase();
-    let mut providers: Vec<&str> = Vec::new();
-    for p in [primary.as_str(), "catbox", "0x0", "litterbox"] {
-        if !providers.iter().any(|x| *x == p) {
-            providers.push(p);
-        }
+    let mut providers = provider_race_order(&cfg.upload.provider);
+    if cfg.upload.provider.eq_ignore_ascii_case("imgur") {
+        providers.insert(0, "imgur".into());
     }
 
-    let mut last_err = String::from("all upload providers failed");
+    let (tx, rx) = std::sync::mpsc::channel::<(String, Result<String, String>)>();
+    let imgur_id = cfg.upload.imgur_client_id.clone();
+    for provider in providers {
+        let tx = tx.clone();
+        let curl = curl.clone();
+        let path = path.clone();
+        let imgur_id = imgur_id.clone();
+        std::thread::spawn(move || {
+            let res = upload_one(&curl, &provider, &path, &imgur_id);
+            let _ = tx.send((provider, res));
+        });
+    }
+    drop(tx);
+
+    let mut errors: Vec<String> = Vec::new();
     let mut url: Option<String> = None;
     let mut used = String::new();
-
-    for provider in providers {
-        let result = match provider {
-            "0x0" | "0x0.st" => Command::new(&curl)
-                .args([
-                    "-sS", "-f", "--connect-timeout", "15", "--max-time", "120",
-                    "-F", &format!("file=@{}", path.display()),
-                    "https://0x0.st",
-                ])
-                .output(),
-            "catbox" => Command::new(&curl)
-                .args([
-                    "-sS", "-f", "--connect-timeout", "15", "--max-time", "120",
-                    "-F", "reqtype=fileupload",
-                    "-F", &format!("fileToUpload=@{}", path.display()),
-                    "https://catbox.moe/user/api.php",
-                ])
-                .output(),
-            "litterbox" => Command::new(&curl)
-                .args([
-                    "-sS", "-f", "--connect-timeout", "15", "--max-time", "120",
-                    "-F", "reqtype=fileupload", "-F", "time=72h",
-                    "-F", &format!("fileToUpload=@{}", path.display()),
-                    "https://litterbox.catbox.moe/resources/internals/api.php",
-                ])
-                .output(),
-            "imgur" => {
-                if cfg.upload.imgur_client_id.trim().is_empty() {
-                    last_err = "imgur needs [upload] imgur_client_id in config".into();
-                    continue;
-                }
-                Command::new(&curl)
-                    .args([
-                        "-sS", "-f", "--connect-timeout", "15", "--max-time", "120",
-                        "-H", &format!("Authorization: Client-ID {}", cfg.upload.imgur_client_id.trim()),
-                        "-F", &format!("image=@{}", path.display()),
-                        "https://api.imgur.com/3/image",
-                    ])
-                    .output()
-            }
-            other => {
-                last_err = format!("unknown upload provider: {other}");
-                continue;
-            }
-        };
-
-        let output = match result {
-            Ok(o) => o,
-            Err(e) => {
-                last_err = format!("{provider}: {e}");
-                continue;
-            }
-        };
-        if !output.status.success() {
-            let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            last_err = if err.is_empty() {
-                format!("{provider}: HTTP/curl failure")
-            } else {
-                format!("{provider}: {err}")
-            };
-            continue;
-        }
-
-        let body = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        let parsed = if provider == "imgur" {
-            body.split("\"link\":\"")
-                .nth(1)
-                .and_then(|s| s.split('"').next())
-                .map(|s| s.replace("\\/", "/"))
-                .filter(|s| s.starts_with("http"))
-        } else {
-            body.lines()
-                .find(|l| l.starts_with("http"))
-                .map(|s| s.trim().to_string())
-                .filter(|s| s.starts_with("http"))
-        };
-        match parsed {
-            Some(u) => {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(50);
+    while std::time::Instant::now() < deadline {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        match rx.recv_timeout(remaining.min(std::time::Duration::from_millis(200))) {
+            Ok((provider, Ok(u))) => {
                 url = Some(u);
-                used = provider.to_string();
+                used = provider;
                 break;
             }
-            None => {
-                last_err = format!("{provider}: non-URL response: {body}");
+            Ok((provider, Err(e))) => {
+                errors.push(format!("{provider}: {e}"));
             }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
 
     let url = match url {
         Some(u) => u,
         None => {
+            let last_err = if errors.is_empty() {
+                "all upload providers failed (timeout)".to_string()
+            } else {
+                errors.join(" | ")
+            };
             let _ = write_upload_state("error", "", &last_err);
             notify("MatrixShot upload failed", &last_err);
             bail!("{last_err}");
@@ -719,7 +863,10 @@ fn upload_last(cfg: &Config) -> Result<()> {
         if !status.success() {
             let msg = "uploaded but failed to copy URL to clipboard";
             let _ = write_upload_state("ok", &url, msg);
-            notify("MatrixShot", &format!("Uploaded via {used} (clipboard failed):\n{url}"));
+            notify(
+                "MatrixShot",
+                &format!("Uploaded via {used} (clipboard failed):\n{url}"),
+            );
             println!("{url}");
             return Ok(());
         }

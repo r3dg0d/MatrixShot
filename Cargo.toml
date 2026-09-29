@@ -1,6 +1,6 @@
 [package]
 name = "matrixshot"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 description = "Wayland screenshot + screen-recording suite"
 license = "MIT"
