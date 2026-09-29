@@ -5,7 +5,7 @@ Wayland-native screenshot and screen-recording suite with a Matrix-themed Quicks
 **Print** → region select → **Screenshot | Screen Record** chooser (fast shot path, no extra confirm).
 Ambxst keeps `SUPER+S` / `SUPER+SHIFT+S` / `SUPER+SHIFT+R` — do not steal those binds.
 
-**Status:** v0.2.0 — chooser + record config UI, stable audio IDs, Nix packaging ready (rebuild to install system-wide).
+**Status:** v0.2.1 — chooser + record config UI, stable audio IDs, codec `-k`, focused-monitor vs fullscreen, Nix packaging ready.
 
 ## Features
 
@@ -22,7 +22,9 @@ Ambxst keeps `SUPER+S` / `SUPER+SHIFT+S` / `SUPER+SHIFT+R` — do not steal thos
 matrixshot choose                         # Print default: slurp → chooser
 matrixshot region [--geometry GEO]        # immediate region shot
 matrixshot fullscreen
-matrixshot record region --geometry GEO --fps 60 --audio desktop|mic|both|none
+matrixshot record region --geometry GEO --fps 60 --audio desktop|mic|both|none [-k CODEC]
+matrixshot record monitor   # focused output (-w focused)
+matrixshot record fullscreen  # all screens (-w screen)
 matrixshot record list-audio
 matrixshot record stop|status|toggle
 matrixshot upload-last | folder | open-last | config

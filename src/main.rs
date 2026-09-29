@@ -48,14 +48,21 @@ enum RecordCmd {
         fps: Option<u32>,
         #[arg(long, value_enum)]
         audio: Option<AudioMode>,
+        /// Video codec for gpu-screen-recorder `-k` (auto skips the flag)
+        #[arg(long, short = 'k')]
+        codec: Option<String>,
         #[arg(long)]
         output_dir: Option<String>,
     },
+    /// Focused monitor (gsr `-w focused`); differs from Fullscreen (`-w screen`)
     Monitor {
         #[arg(long)]
         fps: Option<u32>,
         #[arg(long, value_enum)]
         audio: Option<AudioMode>,
+        /// Video codec for gpu-screen-recorder `-k` (auto skips the flag)
+        #[arg(long, short = 'k')]
+        codec: Option<String>,
         #[arg(long)]
         output_dir: Option<String>,
     },
@@ -66,6 +73,9 @@ enum RecordCmd {
         fps: Option<u32>,
         #[arg(long, value_enum)]
         audio: Option<AudioMode>,
+        /// Video codec for gpu-screen-recorder `-k` (auto skips the flag)
+        #[arg(long, short = 'k')]
+        codec: Option<String>,
         #[arg(long)]
         output_dir: Option<String>,
     },
@@ -355,14 +365,29 @@ fn resolve_audio(cfg: &Config, override_mode: Option<AudioMode>) -> Option<Strin
 struct RecordOpts {
     fps: u32,
     audio: Option<String>,
+    /// When Some and not "auto", passed as gsr `-k`
+    codec: Option<String>,
     output_dir: PathBuf,
     geometry: Option<String>,
+}
+
+fn resolve_codec(cfg: &Config, override_codec: Option<String>) -> Option<String> {
+    let raw = override_codec
+        .unwrap_or_else(|| cfg.recording.codec.clone())
+        .trim()
+        .to_string();
+    if raw.is_empty() || raw.eq_ignore_ascii_case("auto") {
+        None
+    } else {
+        Some(raw)
+    }
 }
 
 fn build_record_opts(
     cfg: &Config,
     fps: Option<u32>,
     audio: Option<AudioMode>,
+    codec: Option<String>,
     output_dir: Option<String>,
     geometry: Option<String>,
 ) -> RecordOpts {
@@ -380,6 +405,7 @@ fn build_record_opts(
     RecordOpts {
         fps: fps.unwrap_or(cfg.recording.fps),
         audio: resolve_audio(cfg, audio),
+        codec: resolve_codec(cfg, codec),
         output_dir: dir,
         geometry,
     }
@@ -403,7 +429,8 @@ fn record_start(cfg: &Config, mode: &str, opts: RecordOpts) -> Result<()> {
 
     let mut args: Vec<String> = vec!["-w".into()];
     match mode {
-        "fullscreen" | "monitor" => args.push("screen".into()),
+        "fullscreen" => args.push("screen".into()),
+        "monitor" => args.push("focused".into()),
         "region" => {
             let region = match opts.geometry {
                 Some(g) if !g.trim().is_empty() => g.trim().to_string(),
@@ -422,6 +449,10 @@ fn record_start(cfg: &Config, mode: &str, opts: RecordOpts) -> Result<()> {
         "-o".into(),
         out.display().to_string(),
     ]);
+    if let Some(k) = opts.codec {
+        args.push("-k".into());
+        args.push(k);
+    }
     if let Some(a) = opts.audio {
         args.push("-a".into());
         args.push(a);
@@ -749,36 +780,37 @@ fn main() -> Result<()> {
                         record_start(
                             &cfg,
                             "fullscreen",
-                            build_record_opts(&cfg, None, None, None, None),
+                            build_record_opts(&cfg, None, None, None, None, None),
                         )?;
                     }
                 } else {
                     record_start(
                         &cfg,
                         "fullscreen",
-                        build_record_opts(&cfg, None, None, None, None),
+                        build_record_opts(&cfg, None, None, None, None, None),
                     )?;
                 }
             }
-            RecordCmd::Fullscreen { fps, audio, output_dir } => record_start(
+            RecordCmd::Fullscreen { fps, audio, codec, output_dir } => record_start(
                 &cfg,
                 "fullscreen",
-                build_record_opts(&cfg, fps, audio, output_dir, None),
+                build_record_opts(&cfg, fps, audio, codec, output_dir, None),
             )?,
-            RecordCmd::Monitor { fps, audio, output_dir } => record_start(
+            RecordCmd::Monitor { fps, audio, codec, output_dir } => record_start(
                 &cfg,
                 "monitor",
-                build_record_opts(&cfg, fps, audio, output_dir, None),
+                build_record_opts(&cfg, fps, audio, codec, output_dir, None),
             )?,
             RecordCmd::Region {
                 geometry,
                 fps,
                 audio,
+                codec,
                 output_dir,
             } => record_start(
                 &cfg,
                 "region",
-                build_record_opts(&cfg, fps, audio, output_dir, geometry),
+                build_record_opts(&cfg, fps, audio, codec, output_dir, geometry),
             )?,
         },
     }

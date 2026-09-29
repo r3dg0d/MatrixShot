@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 — 2026-09-29
+- Wire `recording.codec` / CLI `--codec`/`-k` through to gpu-screen-recorder (skip when `auto`)
+- `record monitor` uses `-w focused`; `record fullscreen` keeps `-w screen`
+
+
 ## 0.2.0 — 2026-09-29
 - Post-region chooser: `matrixshot choose` (Print) → Screenshot | Screen Record
 - Compact recording config UI (fps, audio none/desktop/mic/both, output dir, start)
