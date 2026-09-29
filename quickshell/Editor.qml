@@ -7,6 +7,8 @@ import Quickshell.Wayland
 PanelWindow {
     id: editorWin
 
+    MatrixTheme { id: T }
+
     required property string imagePath
     signal editorClosed()
     signal editorSaved(string path)
@@ -16,7 +18,7 @@ PanelWindow {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     exclusiveZone: 0
-    color: "#cc050805"
+    color: T.overlay
     anchors {
         top: true
         left: true
@@ -27,7 +29,7 @@ PanelWindow {
     readonly property string iconDir: Qt.resolvedUrl("./icons/")
 
     property string tool: "pen" // pen | rect | arrow | highlight | text
-    property color ink: "#00ff66"
+    property color ink: T.phosphor
     property real penWidth: 3
     property var strokes: []
     property var redoStack: []
@@ -124,16 +126,16 @@ PanelWindow {
         implicitWidth: row.implicitWidth + 18
         radius: 8
         color: {
-            if (ma.pressed) return primary ? "#1a4a1a" : "#1a1a1a"
+            if (ma.pressed) return primary ? T.borderStrong : "#1a1a1a"
             if (active || ma.containsMouse) return primary ? "#1a3d1a" : "#1a1a1a"
             return primary ? "#122612" : "#101410"
         }
         border.width: 1
         border.color: {
-            if (danger && ma.containsMouse) return "#ff5555"
-            if (primary || active) return "#00ff66"
-            if (ma.containsMouse) return "#00cc55"
-            return "#1f5f1f"
+            if (danger && ma.containsMouse) return T.critical
+            if (primary || active) return T.phosphor
+            if (ma.containsMouse) return T.phosphorDim
+            return T.border
         }
 
         Row {
@@ -154,10 +156,10 @@ PanelWindow {
                 visible: tb.label.length > 0
                 anchors.verticalCenter: parent.verticalCenter
                 text: tb.label
-                color: danger && ma.containsMouse ? "#ff8888" : "#b8ffb8"
+                color: danger && ma.containsMouse ? T.criticalSoft : T.phosphorText
                 font.pixelSize: 11
                 font.bold: true
-                font.family: "monospace"
+                font.family: T.mono
             }
         }
 
@@ -176,8 +178,8 @@ PanelWindow {
         width: Math.min(parent.width - 48, 1100)
         height: Math.min(parent.height - 48, 820)
         radius: 14
-        color: "#f0080c08"
-        border.color: "#00ff66"
+        color: T.panel
+        border.color: T.phosphor
         border.width: 1
 
         Rectangle {
@@ -199,18 +201,18 @@ PanelWindow {
                 spacing: 10
                 Text {
                     text: "MATRIXSHOT EDIT"
-                    color: "#00ff66"
+                    color: T.phosphor
                     font.bold: true
                     font.pixelSize: 13
                     font.letterSpacing: 1.4
-                    font.family: "monospace"
+                    font.family: T.mono
                 }
                 Item { Layout.fillWidth: true }
                 Text {
                     text: imagePath.split("/").pop()
-                    color: "#7dff9a"
+                    color: T.phosphorSoft
                     font.pixelSize: 11
-                    font.family: "monospace"
+                    font.family: T.mono
                     elide: Text.ElideMiddle
                     Layout.maximumWidth: 360
                 }
@@ -226,8 +228,8 @@ PanelWindow {
             Rectangle {
                 Layout.fillWidth: true
                 radius: 10
-                color: "#0a0f0a"
-                border.color: "#1a4a1a"
+                color: T.surfaceRaised
+                border.color: T.borderStrong
                 border.width: 1
                 implicitHeight: strip.implicitHeight + 16
 
@@ -243,14 +245,14 @@ PanelWindow {
                     ToolBtn { iconName: "arrow"; label: "Arrow"; active: tool === "arrow"; onClicked: tool = "arrow" }
                     ToolBtn { iconName: "text"; label: "Text"; active: tool === "text"; onClicked: tool = "text" }
 
-                    Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: "#1f5f1f" }
+                    Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: T.border }
 
                     Repeater {
-                        model: ["#00ff66", "#ffffff", "#ff3333", "#33aaff", "#000000", "#ffff00"]
+                        model: [T.phosphor, "#ffffff", "#ff3333", "#33aaff", "#000000", "#ffff00"]
                         delegate: Rectangle {
                             width: 24; height: 24; radius: 6
                             color: modelData
-                            border.color: ink === modelData ? "#00ff66" : "#335533"
+                            border.color: ink === modelData ? T.phosphor : T.borderHover
                             border.width: ink === modelData ? 2 : 1
                             Rectangle {
                                 anchors.fill: parent
@@ -269,7 +271,7 @@ PanelWindow {
                         }
                     }
 
-                    Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: "#1f5f1f" }
+                    Rectangle { Layout.preferredWidth: 1; Layout.preferredHeight: 22; color: T.border }
 
                     ToolBtn { iconName: "undo"; label: "Undo"; onClicked: undo() }
                     ToolBtn { iconName: "redo"; label: "Redo"; onClicked: redo() }
@@ -307,8 +309,8 @@ PanelWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 radius: 10
-                color: "#050805"
-                border.color: "#1a4a1a"
+                color: T.bg
+                border.color: T.borderStrong
                 border.width: 1
                 clip: true
 
@@ -408,10 +410,10 @@ PanelWindow {
                             color: ink
                             font.pixelSize: 22
                             font.bold: true
-                            font.family: "monospace"
+                            font.family: T.mono
                             width: 280
                             selectionColor: "#003300"
-                            selectedTextColor: "#00ff66"
+                            selectedTextColor: T.phosphor
                             onAccepted: {
                                 if (text.length > 0) {
                                     pushStroke({ tool: "text", color: ink.toString(), width: penWidth, x: x, y: y + 18, text: text })
@@ -432,7 +434,7 @@ PanelWindow {
                 text: "Esc closes · Enter commits text · Save writes *-edited.png and copies to clipboard"
                 color: "#3d7a4a"
                 font.pixelSize: 11
-                font.family: "monospace"
+                font.family: T.mono
                 Layout.fillWidth: true
             }
         }

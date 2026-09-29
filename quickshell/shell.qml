@@ -8,6 +8,8 @@ import Quickshell.Io
 Scope {
     id: root
 
+    MatrixTheme { id: T }
+
     property var preview: ({})
     property var recording: ({ active: false, startedAt: 0, path: "" })
     property var upload: ({ status: "", url: "", error: "" })
@@ -172,9 +174,9 @@ Scope {
         color: {
             if (selected) return "#1a3d1a"
             if (ma.containsMouse) return primary ? "#1a3d1a" : "#1a1a1a"
-            return primary ? "#122612" : "#141414"
+            return primary ? "#122612" : T.muteBg
         }
-        border.color: (primary || selected) ? "#00ff66" : (ma.containsMouse ? "#00cc55" : "#1f5f1f")
+        border.color: (primary || selected) ? T.phosphor : (ma.containsMouse ? T.phosphorDim : T.border)
         border.width: 1
         opacity: ma.pressed ? 0.75 : 1
 
@@ -193,10 +195,10 @@ Scope {
             }
             Text {
                 text: btn.busy ? "…" : btn.label
-                color: "#b8ffb8"
+                color: T.phosphorText
                 font.pixelSize: 12
                 font.bold: true
-                font.family: "monospace"
+                font.family: T.mono
             }
         }
 
@@ -227,8 +229,8 @@ Scope {
             id: chooseCard
             anchors.fill: parent
             radius: 12
-            color: "#f0080c08"
-            border.color: "#00ff66"
+            color: T.panel
+            border.color: T.phosphor
             border.width: 1
             implicitHeight: chooseCol.implicitHeight + 24
 
@@ -242,17 +244,17 @@ Scope {
                     Layout.fillWidth: true
                     Text {
                         text: "MATRIXSHOT"
-                        color: "#00ff66"
+                        color: T.phosphor
                         font.pixelSize: 12
                         font.bold: true
                         font.letterSpacing: 1.5
-                        font.family: "monospace"
+                        font.family: T.mono
                         Layout.fillWidth: true
                     }
                     Rectangle {
                         width: 28; height: 28; radius: 6
-                        color: chooseCloseMa.containsMouse ? "#2a1515" : "#141414"
-                        border.color: chooseCloseMa.containsMouse ? "#ff5555" : "#335533"
+                        color: chooseCloseMa.containsMouse ? T.criticalBg : T.muteBg
+                        border.color: chooseCloseMa.containsMouse ? T.critical : T.borderHover
                         border.width: 1
                         Image {
                             anchors.centerIn: parent
@@ -272,9 +274,9 @@ Scope {
 
                 Text {
                     text: "Region  " + (root.chooser.geometry || "")
-                    color: "#7dff9a"
+                    color: T.phosphorSoft
                     font.pixelSize: 10
-                    font.family: "monospace"
+                    font.family: T.mono
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
                 }
@@ -314,8 +316,8 @@ Scope {
             id: recCfgCard
             anchors.fill: parent
             radius: 12
-            color: "#f0080c08"
-            border.color: "#00ff66"
+            color: T.panel
+            border.color: T.phosphor
             border.width: 1
             implicitHeight: recCfgCol.implicitHeight + 24
 
@@ -329,17 +331,17 @@ Scope {
                     Layout.fillWidth: true
                     Text {
                         text: "RECORD CONFIG"
-                        color: "#00ff66"
+                        color: T.phosphor
                         font.pixelSize: 12
                         font.bold: true
                         font.letterSpacing: 1.2
-                        font.family: "monospace"
+                        font.family: T.mono
                         Layout.fillWidth: true
                     }
                     Rectangle {
                         width: 28; height: 28; radius: 6
-                        color: recCfgCloseMa.containsMouse ? "#2a1515" : "#141414"
-                        border.color: recCfgCloseMa.containsMouse ? "#ff5555" : "#335533"
+                        color: recCfgCloseMa.containsMouse ? T.criticalBg : T.muteBg
+                        border.color: recCfgCloseMa.containsMouse ? T.critical : T.borderHover
                         border.width: 1
                         Image {
                             anchors.centerIn: parent
@@ -359,19 +361,19 @@ Scope {
 
                 Text {
                     text: "Region  " + (root.chooser.geometry || "")
-                    color: "#7dff9a"
+                    color: T.phosphorSoft
                     font.pixelSize: 10
-                    font.family: "monospace"
+                    font.family: T.mono
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
                 }
 
                 Text {
                     text: "FPS"
-                    color: "#00ff66"
+                    color: T.phosphor
                     font.pixelSize: 11
                     font.bold: true
-                    font.family: "monospace"
+                    font.family: T.mono
                 }
                 RowLayout {
                     Layout.fillWidth: true
@@ -390,10 +392,10 @@ Scope {
 
                 Text {
                     text: "AUDIO"
-                    color: "#00ff66"
+                    color: T.phosphor
                     font.pixelSize: 11
                     font.bold: true
-                    font.family: "monospace"
+                    font.family: T.mono
                 }
                 GridLayout {
                     Layout.fillWidth: true
@@ -420,10 +422,10 @@ Scope {
                 Text {
                     visible: root.audioDevices.length > 0
                     text: "DEVICES (info)"
-                    color: "#00ff66"
+                    color: T.phosphor
                     font.pixelSize: 11
                     font.bold: true
-                    font.family: "monospace"
+                    font.family: T.mono
                 }
                 Text {
                     visible: root.audioDevices.length > 0
@@ -448,32 +450,32 @@ Scope {
                     }
                     color: "#6a9a6a"
                     font.pixelSize: 9
-                    font.family: "monospace"
+                    font.family: T.mono
                     wrapMode: Text.Wrap
                     Layout.fillWidth: true
                 }
 
                 Text {
                     text: "OUTPUT"
-                    color: "#00ff66"
+                    color: T.phosphor
                     font.pixelSize: 11
                     font.bold: true
-                    font.family: "monospace"
+                    font.family: T.mono
                 }
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 32
                     radius: 6
                     color: "#0a0a0a"
-                    border.color: "#1f5f1f"
+                    border.color: T.border
                     border.width: 1
                     TextInput {
                         anchors.fill: parent
                         anchors.margins: 8
                         text: root.recOutDir
-                        color: "#b8ffb8"
+                        color: T.phosphorText
                         font.pixelSize: 11
-                        font.family: "monospace"
+                        font.family: T.mono
                         clip: true
                         selectByMouse: true
                         onTextChanged: root.recOutDir = text
@@ -518,8 +520,8 @@ Scope {
             id: card
             anchors.fill: parent
             radius: 12
-            color: "#f0080c08"
-            border.color: "#00ff66"
+            color: T.panel
+            border.color: T.phosphor
             border.width: 1
             implicitHeight: col.implicitHeight + 24
 
@@ -543,19 +545,19 @@ Scope {
                     spacing: 8
                     Text {
                         text: "MATRIXSHOT"
-                        color: "#00ff66"
+                        color: T.phosphor
                         font.pixelSize: 12
                         font.bold: true
                         font.letterSpacing: 1.5
-                        font.family: "monospace"
+                        font.family: T.mono
                         Layout.fillWidth: true
                     }
                     Rectangle {
                         width: 28
                         height: 28
                         radius: 6
-                        color: closeMa.containsMouse ? "#2a1515" : "#141414"
-                        border.color: closeMa.containsMouse ? "#ff5555" : "#335533"
+                        color: closeMa.containsMouse ? T.criticalBg : T.muteBg
+                        border.color: closeMa.containsMouse ? T.critical : T.borderHover
                         border.width: 1
                         Image {
                             anchors.centerIn: parent
@@ -585,7 +587,7 @@ Scope {
                     Layout.preferredHeight: 148
                     radius: 8
                     color: "#0a0a0a"
-                    border.color: "#1a4a1a"
+                    border.color: T.borderStrong
                     border.width: 1
                     clip: true
                     Image {
@@ -599,9 +601,9 @@ Scope {
 
                 Text {
                     text: (root.preview.name || "") + (root.preview.dims ? (" · " + root.preview.dims) : "")
-                    color: "#7dff9a"
+                    color: T.phosphorSoft
                     font.pixelSize: 11
-                    font.family: "monospace"
+                    font.family: T.mono
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
                 }
@@ -645,7 +647,7 @@ Scope {
                     Layout.fillWidth: true
                     radius: 8
                     color: root.upload.status === "error" ? "#1a0808" : "#081408"
-                    border.color: root.upload.status === "error" ? "#ff5555" : "#00ff66"
+                    border.color: root.upload.status === "error" ? T.critical : T.phosphor
                     border.width: 1
                     implicitHeight: statusCol.implicitHeight + 16
 
@@ -668,10 +670,10 @@ Scope {
                                 text: root.upload.status === "uploading"
                                       ? "Uploading…"
                                       : (root.upload.status === "ok" ? "URL copied to clipboard" : "Upload failed")
-                                color: root.upload.status === "error" ? "#ff8888" : "#00ff66"
+                                color: root.upload.status === "error" ? T.criticalSoft : T.phosphor
                                 font.pixelSize: 11
                                 font.bold: true
-                                font.family: "monospace"
+                                font.family: T.mono
                                 Layout.fillWidth: true
                             }
                         }
@@ -680,7 +682,7 @@ Scope {
                             text: root.upload.url || ""
                             color: "#9dffb0"
                             font.pixelSize: 10
-                            font.family: "monospace"
+                            font.family: T.mono
                             wrapMode: Text.WrapAnywhere
                             Layout.fillWidth: true
                         }
@@ -689,7 +691,7 @@ Scope {
                             text: root.upload.error || ""
                             color: "#ffaaaa"
                             font.pixelSize: 10
-                            font.family: "monospace"
+                            font.family: T.mono
                             wrapMode: Text.Wrap
                             Layout.fillWidth: true
                         }
@@ -761,8 +763,8 @@ Scope {
                 id: recRow
                 anchors.centerIn: parent
                 spacing: 10
-                Text { text: "● REC"; color: "#ff3333"; font.bold: true; font.pixelSize: 14; font.family: "monospace" }
-                Text { id: elapsed; color: "#eeeeee"; font.pixelSize: 14; font.family: "monospace"; text: "00:00:00" }
+                Text { text: "● REC"; color: "#ff3333"; font.bold: true; font.pixelSize: 14; font.family: T.mono }
+                Text { id: elapsed; color: "#eeeeee"; font.pixelSize: 14; font.family: T.mono; text: "00:00:00" }
                 MatrixIconButton {
                     label: "Stop"
                     Layout.preferredWidth: 72
