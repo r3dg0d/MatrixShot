@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+state="${XDG_STATE_HOME:-$HOME/.local/state}/matrixshot"
+mkdir -p "$state"
+case "${1:-}" in
+  start)
+    printf '{"active":true,"startedAt":%s,"path":"%s"}\n' "$(date +%s)" "${2:-}" >"$state/recording.json"
+    ;;
+  stop)
+    printf '{"active":false}\n' >"$state/recording.json"
+    ;;
+  *) echo "usage: matrixshot-rec-ui start|stop [path]"; exit 1 ;;
+esac
+matrixshot-ui ensure || true

@@ -1,66 +1,50 @@
 # MatrixShot
 
-Wayland-native screenshot and screen-recording suite for Linux.
+Wayland-native screenshot and screen-recording suite with a Matrix-themed Quickshell overlay.
 
-**Status:** v0.1.0 MVP — CLI screenshots and gpu-screen-recorder orchestration work. Quickshell preview/REC UI and uploads are in progress.
+**Print** → region select → **Screenshot | Screen Record** chooser (fast shot path, no extra confirm).
+Ambxst keeps `SUPER+S` / `SUPER+SHIFT+S` / `SUPER+SHIFT+R` — do not steal those binds.
+
+**Status:** v0.2.0 — chooser + record config UI, stable audio IDs, Nix packaging ready (rebuild to install system-wide).
 
 ## Features
 
-- Region + fullscreen screenshots via `grim` + `slurp`
-- Matrix-green (`#00ff00`) selection border
-- Clipboard copy via `wl-copy`
-- XDG save paths (`~/Pictures/Screenshots`, `~/Videos/MatrixShot`)
-- Recording via `gpu-screen-recorder` (start/stop/toggle/status)
-- Opens captures with `imv` (configurable)
-- Edit opens a Quickshell annotation widget (not Krita/GIMP)
-- Manual-only uploads (disabled by default)
-
-## Privacy
-
-- No automatic uploads
-- No telemetry
-- No hardcoded secrets
+- Region + fullscreen screenshots via grim/slurp
+- Post-region chooser: Screenshot | Screen Record
+- Compact recording config (fps, audio none/desktop/mic/both, output dir)
+- gpu-screen-recorder orchestration with REC indicator overlay
+- Quickshell annotation editor (pen / highlight / rect / arrow / text)
+- Upload last capture (catbox / 0x0 / litterbox / imgur)
 
 ## CLI
 
-```bash
-matrixshot              # region (default)
-matrixshot region
+```
+matrixshot choose                         # Print default: slurp → chooser
+matrixshot region [--geometry GEO]        # immediate region shot
 matrixshot fullscreen
-matrixshot open-last
-matrixshot folder
-matrixshot record toggle
-matrixshot record status
-matrixshot --help
+matrixshot record region --geometry GEO --fps 60 --audio desktop|mic|both|none
+matrixshot record list-audio
+matrixshot record stop|status|toggle
+matrixshot upload-last | folder | open-last | config
 ```
 
-## Nix
+Geometry: slurp/grim use `X,Y WxH`; gsr uses `WxH+X+Y` — MatrixShot converts both ways.
 
-```bash
-nix run .#
-nix develop
-nix flake check
+## Config
+
+`~/.config/matrixshot/config.toml` — created on first run.
+
+## Nix packaging
+
+```
+Projects/MatrixShot/packaging/nix/package.nix
+/etc/nixos/packages/matrixshot/{default,package}.nix
+modules/matrixshot-path.nix  # callPackage when Projects tree present
 ```
 
-## Dependencies
-
-`grim`, `slurp`, `wl-clipboard`, `gpu-screen-recorder`, `imv` (viewer).
-
-
-## Upload
-
-Preview **Upload** posts the last capture and copies the URL to the clipboard (`wl-copy`).
-
-```toml
-[upload]
-enabled = true
-provider = "catbox"   # catbox | 0x0 | litterbox | imgur
-copy_url = true
-imgur_client_id = ""  # required only for imgur
-```
-
-MatrixShot tries the configured provider first, then falls back to `catbox` → `0x0` → `litterbox` if the host errors.
+`nixos-rebuild switch` is still required to put the store package on the system profile.
+Until then, `~/.local/bin/matrixshot*` is the live path.
 
 ## License
 
-MIT
+MIT — see LICENSE.

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+path="${1:-}"
+[[ -n "$path" && -f "$path" ]] || exit 0
+state="${XDG_STATE_HOME:-$HOME/.local/state}/matrixshot"
+mkdir -p "$state"
+name=$(basename "$path")
+dims=""
+if command -v identify >/dev/null 2>&1; then
+  dims=$(identify -format '%wx%h' "$path" 2>/dev/null || true)
+elif command -v ffprobe >/dev/null 2>&1; then
+  dims=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=s=x:p=0 "$path" 2>/dev/null || true)
+fi
+timeout=10
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/matrixshot/config.toml"
+if [[ -f "$cfg" ]]; then
+  timeout=$(rg -o 'timeout\s*=\s*[0-9]+' "$cfg" 2>/dev/null | head -1 | rg -o '[0-9]+' || echo 10)
+fi
+printf '{"path":"%s","name":"%s","dims":"%s","timeout":%s}\n' "$path" "$name" "$dims" "$timeout" >"$state/preview.json"
+matrixshot-ui ensure || true

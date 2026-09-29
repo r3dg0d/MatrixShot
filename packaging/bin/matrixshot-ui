@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Ensure the MatrixShot Quickshell overlay is running (single-instance).
+QS=$(command -v qs || command -v quickshell || true)
+if [[ -z "${QS}" ]]; then
+  for cand in /nix/store/*/bin/qs; do
+    [[ -x "$cand" ]] || continue
+    QS=$cand
+    break
+  done
+fi
+SHELL_DIR="${MATRIXSHOT_QS_DIR:-}"
+if [[ -z "$SHELL_DIR" && -f "$HOME/Projects/MatrixShot/quickshell/shell.qml" ]]; then
+  SHELL_DIR="$HOME/Projects/MatrixShot/quickshell"
+fi
+if [[ -z "$SHELL_DIR" ]]; then
+  # packaged share path next to this script's store/share
+  here=$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")
+  for cand in \
+    "$here/../share/matrixshot/quickshell" \
+    /run/current-system/sw/share/matrixshot/quickshell; do
+    if [[ -f "$cand/shell.qml" ]]; then SHELL_DIR=$cand; break; fi
+  done
+fi
+case "${1:-ensure}" in
+  ensure|start)
+    [[ -n "$QS" && -n "$SHELL_DIR" && -f "$SHELL_DIR/shell.qml" ]] || exit 0
+    "$QS" -n -d -p "$SHELL_DIR" >/dev/null 2>&1 || "$QS" -d -p "$SHELL_DIR" >/dev/null 2>&1 || true
+    ;;
+  *) echo "usage: matrixshot-ui ensure"; exit 1 ;;
+esac

@@ -11,13 +11,26 @@ Scope {
     property var preview: ({})
     property var recording: ({ active: false, startedAt: 0, path: "" })
     property var upload: ({ status: "", url: "", error: "" })
+    property var chooser: ({})
     property string editPath: ""
-    readonly property string bin: Quickshell.env("HOME") + "/.local/bin/matrixshot"
+    property int recFps: 60
+    property string recAudio: "desktop"
+    property string recOutDir: Quickshell.env("HOME") + "/Videos/MatrixShot"
+    property var audioDevices: []
+
+    readonly property string bin: {
+        const homeBin = Quickshell.env("HOME") + "/.local/bin/matrixshot"
+        return homeBin
+    }
     readonly property string iconDir: Qt.resolvedUrl("./icons/")
+    readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/matrixshot"
+    readonly property bool chooserOpen: !!(root.chooser && root.chooser.geometry && root.chooser.phase)
+    readonly property bool choosePhase: root.chooserOpen && root.chooser.phase === "choose"
+    readonly property bool recordConfigPhase: root.chooserOpen && root.chooser.phase === "record-config"
 
     FileView {
         id: previewFile
-        path: Quickshell.env("HOME") + "/.local/state/matrixshot/preview.json"
+        path: root.stateDir + "/preview.json"
         watchChanges: true
         onFileChanged: previewFile.reload()
         onLoaded: {
@@ -28,7 +41,7 @@ Scope {
 
     FileView {
         id: recordFile
-        path: Quickshell.env("HOME") + "/.local/state/matrixshot/recording.json"
+        path: root.stateDir + "/recording.json"
         watchChanges: true
         onFileChanged: recordFile.reload()
         onLoaded: {
@@ -39,7 +52,7 @@ Scope {
 
     FileView {
         id: uploadFile
-        path: Quickshell.env("HOME") + "/.local/state/matrixshot/upload.json"
+        path: root.stateDir + "/upload.json"
         watchChanges: true
         onFileChanged: uploadFile.reload()
         onLoaded: {
@@ -50,7 +63,7 @@ Scope {
 
     FileView {
         id: editRequest
-        path: Quickshell.env("HOME") + "/.local/state/matrixshot/edit.json"
+        path: root.stateDir + "/edit.json"
         watchChanges: true
         onFileChanged: editRequest.reload()
         onLoaded: {
@@ -61,11 +74,87 @@ Scope {
         }
     }
 
+    FileView {
+        id: chooserFile
+        path: root.stateDir + "/chooser.json"
+        watchChanges: true
+        onFileChanged: chooserFile.reload()
+        onLoaded: {
+            try {
+                const j = JSON.parse(chooserFile.text())
+                root.chooser = j && j.geometry ? j : ({})
+                if (root.chooser.phase === "record-config")
+                    root.loadAudioDevices()
+            } catch (e) { root.chooser = ({}) }
+        }
+    }
+
+    Process {
+        id: audioProc
+        command: [root.bin, "record", "list-audio"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                const lines = text.trim().split("\n").filter(l => l.length > 0)
+                const devices = []
+                for (let i = 0; i < lines.length; i++) {
+                    const parts = lines[i].split("|")
+                    const id = parts[0] || ""
+                    const label = parts.slice(1).join("|") || id
+                    if (id) devices.push({ id: id, label: label })
+                }
+                root.audioDevices = devices
+            }
+        }
+    }
+
+    function loadAudioDevices() {
+        audioProc.running = false
+        audioProc.running = true
+    }
+
+    function dismissChooser() {
+        root.chooser = ({})
+        Quickshell.execDetached(["rm", "-f", root.stateDir + "/chooser.json"])
+    }
+
+    function setChooserPhase(phase) {
+        if (!root.chooser.geometry) return
+        const body = JSON.stringify({
+            geometry: root.chooser.geometry,
+            phase: phase,
+            ts: Math.floor(Date.now() / 1000)
+        })
+        Quickshell.execDetached(["bash", "-lc",
+            "printf '%s\\n' " + JSON.stringify(body) + " > \"" + root.stateDir + "/chooser.json\""
+        ])
+        root.chooser = ({ geometry: root.chooser.geometry, phase: phase })
+        if (phase === "record-config") root.loadAudioDevices()
+    }
+
+    function doScreenshot() {
+        const g = root.chooser.geometry
+        if (!g) return
+        Quickshell.execDetached([root.bin, "region", "--geometry", g])
+        root.chooser = ({})
+    }
+
+    function startRecording() {
+        const g = root.chooser.geometry
+        if (!g) return
+        const args = [root.bin, "record", "region",
+            "--geometry", g,
+            "--fps", String(root.recFps),
+            "--audio", root.recAudio,
+            "--output-dir", root.recOutDir]
+        Quickshell.execDetached(args)
+        root.chooser = ({})
+    }
+
     function openEditor(path) {
         dismiss.stop()
         root.preview = ({})
         root.editPath = path
-        Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/preview.json"])
+        Quickshell.execDetached(["rm", "-f", root.stateDir + "/preview.json"])
     }
 
     component MatrixIconButton: Rectangle {
@@ -74,13 +163,18 @@ Scope {
         property string iconName: ""
         property bool busy: false
         property bool primary: false
+        property bool selected: false
         signal clicked()
 
         Layout.fillWidth: true
         Layout.preferredHeight: 36
         radius: 8
-        color: ma.containsMouse ? (primary ? "#1a3d1a" : "#1a1a1a") : (primary ? "#122612" : "#141414")
-        border.color: primary ? "#00ff66" : (ma.containsMouse ? "#00cc55" : "#1f5f1f")
+        color: {
+            if (selected) return "#1a3d1a"
+            if (ma.containsMouse) return primary ? "#1a3d1a" : "#1a1a1a"
+            return primary ? "#122612" : "#141414"
+        }
+        border.color: (primary || selected) ? "#00ff66" : (ma.containsMouse ? "#00cc55" : "#1f5f1f")
         border.width: 1
         opacity: ma.pressed ? 0.75 : 1
 
@@ -115,10 +209,301 @@ Scope {
         }
     }
 
+    // ---- Post-region chooser: Screenshot | Screen Record ----
+    PanelWindow {
+        id: chooserWin
+        visible: root.choosePhase && root.editPath.length === 0
+        screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        exclusiveZone: 0
+        color: "transparent"
+        anchors { top: true; right: true }
+        margins { top: 12; right: 12 }
+        implicitWidth: 300
+        implicitHeight: chooseCard.implicitHeight
+
+        Rectangle {
+            id: chooseCard
+            anchors.fill: parent
+            radius: 12
+            color: "#f0080c08"
+            border.color: "#00ff66"
+            border.width: 1
+            implicitHeight: chooseCol.implicitHeight + 24
+
+            ColumnLayout {
+                id: chooseCol
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 10
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: "MATRIXSHOT"
+                        color: "#00ff66"
+                        font.pixelSize: 12
+                        font.bold: true
+                        font.letterSpacing: 1.5
+                        font.family: "monospace"
+                        Layout.fillWidth: true
+                    }
+                    Rectangle {
+                        width: 28; height: 28; radius: 6
+                        color: chooseCloseMa.containsMouse ? "#2a1515" : "#141414"
+                        border.color: chooseCloseMa.containsMouse ? "#ff5555" : "#335533"
+                        border.width: 1
+                        Image {
+                            anchors.centerIn: parent
+                            source: root.iconDir + "close.svg"
+                            sourceSize.width: 14; sourceSize.height: 14
+                            width: 14; height: 14
+                        }
+                        MouseArea {
+                            id: chooseCloseMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.dismissChooser()
+                        }
+                    }
+                }
+
+                Text {
+                    text: "Region  " + (root.chooser.geometry || "")
+                    color: "#7dff9a"
+                    font.pixelSize: 10
+                    font.family: "monospace"
+                    elide: Text.ElideMiddle
+                    Layout.fillWidth: true
+                }
+
+                MatrixIconButton {
+                    label: "Screenshot"
+                    iconName: "screenshot"
+                    primary: true
+                    Layout.preferredHeight: 42
+                    onClicked: root.doScreenshot()
+                }
+                MatrixIconButton {
+                    label: "Screen Record"
+                    iconName: "record"
+                    Layout.preferredHeight: 42
+                    onClicked: root.setChooserPhase("record-config")
+                }
+            }
+        }
+    }
+
+    // ---- Recording config (after Screen Record) ----
+    PanelWindow {
+        id: recCfgWin
+        visible: root.recordConfigPhase && root.editPath.length === 0
+        screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        exclusiveZone: 0
+        color: "transparent"
+        anchors { top: true; right: true }
+        margins { top: 12; right: 12 }
+        implicitWidth: 340
+        implicitHeight: recCfgCard.implicitHeight
+
+        Rectangle {
+            id: recCfgCard
+            anchors.fill: parent
+            radius: 12
+            color: "#f0080c08"
+            border.color: "#00ff66"
+            border.width: 1
+            implicitHeight: recCfgCol.implicitHeight + 24
+
+            ColumnLayout {
+                id: recCfgCol
+                anchors.fill: parent
+                anchors.margins: 12
+                spacing: 8
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    Text {
+                        text: "RECORD CONFIG"
+                        color: "#00ff66"
+                        font.pixelSize: 12
+                        font.bold: true
+                        font.letterSpacing: 1.2
+                        font.family: "monospace"
+                        Layout.fillWidth: true
+                    }
+                    Rectangle {
+                        width: 28; height: 28; radius: 6
+                        color: recCfgCloseMa.containsMouse ? "#2a1515" : "#141414"
+                        border.color: recCfgCloseMa.containsMouse ? "#ff5555" : "#335533"
+                        border.width: 1
+                        Image {
+                            anchors.centerIn: parent
+                            source: root.iconDir + "close.svg"
+                            sourceSize.width: 14; sourceSize.height: 14
+                            width: 14; height: 14
+                        }
+                        MouseArea {
+                            id: recCfgCloseMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.dismissChooser()
+                        }
+                    }
+                }
+
+                Text {
+                    text: "Region  " + (root.chooser.geometry || "")
+                    color: "#7dff9a"
+                    font.pixelSize: 10
+                    font.family: "monospace"
+                    elide: Text.ElideMiddle
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    text: "FPS"
+                    color: "#00ff66"
+                    font.pixelSize: 11
+                    font.bold: true
+                    font.family: "monospace"
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    Repeater {
+                        model: [30, 60, 120]
+                        MatrixIconButton {
+                            required property int modelData
+                            label: String(modelData)
+                            selected: root.recFps === modelData
+                            Layout.preferredHeight: 32
+                            onClicked: root.recFps = modelData
+                        }
+                    }
+                }
+
+                Text {
+                    text: "AUDIO"
+                    color: "#00ff66"
+                    font.pixelSize: 11
+                    font.bold: true
+                    font.family: "monospace"
+                }
+                GridLayout {
+                    Layout.fillWidth: true
+                    columns: 2
+                    rowSpacing: 6
+                    columnSpacing: 6
+                    Repeater {
+                        model: [
+                            { id: "none", label: "None" },
+                            { id: "desktop", label: "Desktop" },
+                            { id: "mic", label: "Mic" },
+                            { id: "both", label: "Both" }
+                        ]
+                        MatrixIconButton {
+                            required property var modelData
+                            label: modelData.label
+                            selected: root.recAudio === modelData.id
+                            Layout.preferredHeight: 32
+                            onClicked: root.recAudio = modelData.id
+                        }
+                    }
+                }
+
+                Text {
+                    visible: root.audioDevices.length > 0
+                    text: "DEVICES (info)"
+                    color: "#00ff66"
+                    font.pixelSize: 11
+                    font.bold: true
+                    font.family: "monospace"
+                }
+                Text {
+                    visible: root.audioDevices.length > 0
+                    text: {
+                        const ids = ["default_output", "default_input"]
+                        const lines = []
+                        for (let i = 0; i < root.audioDevices.length; i++) {
+                            const d = root.audioDevices[i]
+                            if (ids.indexOf(d.id) >= 0)
+                                lines.push(d.id + " — " + d.label)
+                        }
+                        // also show first few extras
+                        let extra = 0
+                        for (let i = 0; i < root.audioDevices.length && extra < 3; i++) {
+                            const d = root.audioDevices[i]
+                            if (ids.indexOf(d.id) < 0) {
+                                lines.push(d.id.split(".").slice(-1)[0] + " — " + d.label)
+                                extra++
+                            }
+                        }
+                        return lines.join("\n") || "default_output / default_input"
+                    }
+                    color: "#6a9a6a"
+                    font.pixelSize: 9
+                    font.family: "monospace"
+                    wrapMode: Text.Wrap
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    text: "OUTPUT"
+                    color: "#00ff66"
+                    font.pixelSize: 11
+                    font.bold: true
+                    font.family: "monospace"
+                }
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 32
+                    radius: 6
+                    color: "#0a0a0a"
+                    border.color: "#1f5f1f"
+                    border.width: 1
+                    TextInput {
+                        anchors.fill: parent
+                        anchors.margins: 8
+                        text: root.recOutDir
+                        color: "#b8ffb8"
+                        font.pixelSize: 11
+                        font.family: "monospace"
+                        clip: true
+                        selectByMouse: true
+                        onTextChanged: root.recOutDir = text
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+                    MatrixIconButton {
+                        label: "Back"
+                        Layout.preferredHeight: 38
+                        onClicked: root.setChooserPhase("choose")
+                    }
+                    MatrixIconButton {
+                        label: "Start"
+                        iconName: "record"
+                        primary: true
+                        Layout.preferredHeight: 38
+                        onClicked: root.startRecording()
+                    }
+                }
+            }
+        }
+    }
+
     // Screenshot preview card — top-right
     PanelWindow {
         id: previewWin
-        visible: !!(root.preview && root.preview.path) && root.editPath.length === 0
+        visible: !!(root.preview && root.preview.path) && root.editPath.length === 0 && !root.chooserOpen
         screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
@@ -138,7 +523,6 @@ Scope {
             border.width: 1
             implicitHeight: col.implicitHeight + 24
 
-            // subtle inner glow line
             Rectangle {
                 anchors.fill: parent
                 anchors.margins: 1
@@ -189,8 +573,8 @@ Scope {
                             onClicked: {
                                 root.preview = ({})
                                 root.upload = ({ status: "", url: "", error: "" })
-                                Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/preview.json"])
-                                Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/upload.json"])
+                                Quickshell.execDetached(["rm", "-f", root.stateDir + "/preview.json"])
+                                Quickshell.execDetached(["rm", "-f", root.stateDir + "/upload.json"])
                             }
                         }
                     }
@@ -320,7 +704,7 @@ Scope {
                 onTriggered: {
                     root.preview = ({})
                     root.upload = ({ status: "", url: "", error: "" })
-                    Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/preview.json"])
+                    Quickshell.execDetached(["rm", "-f", root.stateDir + "/preview.json"])
                 }
             }
             MouseArea {
@@ -341,10 +725,10 @@ Scope {
         imagePath: root.editPath
         onEditorClosed: {
             root.editPath = ""
-            Quickshell.execDetached(["rm", "-f", Quickshell.env("HOME") + "/.local/state/matrixshot/edit.json"])
+            Quickshell.execDetached(["rm", "-f", root.stateDir + "/edit.json"])
         }
         onEditorSaved: (path) => {
-            Quickshell.execDetached(["bash", "-lc", "printf '%s\\n' screenshot \"" + path + "\" > \"$HOME/.local/state/matrixshot/last\""])
+            Quickshell.execDetached(["bash", "-lc", "printf '%s\\n' screenshot \"" + path + "\" > \"" + root.stateDir + "/last\""])
             root.editPath = ""
             root.preview = ({ path: path, name: path.split("/").pop(), dims: "", timeout: 10 })
         }

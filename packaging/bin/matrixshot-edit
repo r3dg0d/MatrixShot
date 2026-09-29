@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+path="${1:-}"
+[[ -n "$path" && -f "$path" ]] || { echo "usage: matrixshot-edit IMAGE.png" >&2; exit 1; }
+state="${XDG_STATE_HOME:-$HOME/.local/state}/matrixshot"
+mkdir -p "$state"
+printf '{"path":"%s"}\n' "$path" >"$state/edit.json"
+matrixshot-ui ensure || true
