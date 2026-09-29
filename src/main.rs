@@ -266,11 +266,12 @@ fn record_start(cfg: &Config, mode: &str) -> Result<()> {
         }
         _ => bail!("unknown mode"),
     }
+    // Do NOT pass -fallback-cpu-encoding here: zionsec's PATH wrapper
+    // (modules/screen-recorder.nix) already injects it for Ambxst. Passing
+    // it twice makes gsr exit with "expected argument … only once".
     args.extend([
         "-f".into(),
         cfg.recording.fps.to_string(),
-        "-fallback-cpu-encoding".into(),
-        "yes".into(),
         "-o".into(),
         out.display().to_string(),
     ]);
