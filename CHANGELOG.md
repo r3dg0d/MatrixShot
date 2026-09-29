@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.2 — 2026-09-29
+- Fix Quickshell overlay crash: rename theme id `T` → `theme` (QML/Quickshell forbids IDs starting with uppercase), restoring Screenshot | Screen Record chooser
+
 ## 0.2.1 — 2026-09-29
 - Wire `recording.codec` / CLI `--codec`/`-k` through to gpu-screen-recorder (skip when `auto`)
 - `record monitor` uses `-w focused`; `record fullscreen` keeps `-w screen`
