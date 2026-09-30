@@ -36,6 +36,25 @@ Geometry: slurp/grim use `X,Y WxH`; gsr uses `WxH+X+Y` — MatrixShot converts b
 
 `~/.config/matrixshot/config.toml` — created on first run.
 
+Clipboard copying is optional: set `screenshot.copy_to_clipboard = false` to
+capture without `wl-copy`. When copying is enabled but unavailable or fails, the
+capture is still saved and registered as the last capture; a warning explains the
+clipboard failure.
+
+## Development checks
+
+```bash
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked --release
+```
+
+CI runs these checks and CLI smoke tests. Screenshot integration tests use fake
+grim/clipboard commands with isolated config and state directories, so they do
+not require a compositor. Live capture and recording still require Wayland and
+the corresponding external tools.
+
 ## Nix packaging
 
 ```

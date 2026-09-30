@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test --locked
+      - name: Release build and CLI smoke
+        run: |
+          cargo build --locked --release
+          ./target/release/matrixshot --version
+          ./target/release/matrixshot --help
+          ./target/release/matrixshot record --help
+          if ./target/release/matrixshot invalid-command; then
+            echo "Invalid commands must fail"
+            exit 1
+          fi

@@ -9,7 +9,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 #[derive(Parser, Debug)]
-#[command(name = "matrixshot", version, about = "Wayland screenshots and recordings")]
+#[command(
+    name = "matrixshot",
+    version,
+    about = "Wayland screenshots and recordings"
+)]
 struct Cli {
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -234,9 +238,32 @@ fn choose_flow(cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+fn copy_screenshot(cfg: &Config, out: &Path) {
+    if !cfg.screenshot.copy_to_clipboard {
+        return;
+    }
+    let result = (|| -> Result<()> {
+        let wl_copy = require_bin("wl-copy")?;
+        let status = Command::new(wl_copy)
+            .args(["-t", "image/png"])
+            .stdin(Stdio::from(fs::File::open(out)?))
+            .status()
+            .context("run wl-copy")?;
+        if !status.success() {
+            bail!("wl-copy exited with {status}");
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        eprintln!(
+            "warning: screenshot saved to {}, but clipboard copy failed: {error:#}",
+            out.display()
+        );
+    }
+}
+
 fn screenshot_with_geometry(cfg: &Config, region: &str) -> Result<PathBuf> {
     let grim = require_bin("grim")?;
-    let wl_copy = require_bin("wl-copy")?;
 
     let dir = cfg.screenshot_dir();
     ensure_dir(&dir)?;
@@ -252,12 +279,7 @@ fn screenshot_with_geometry(cfg: &Config, region: &str) -> Result<PathBuf> {
         bail!("grim failed");
     }
 
-    if cfg.screenshot.copy_to_clipboard {
-        let _ = Command::new(&wl_copy)
-            .args(["-t", "image/png"])
-            .stdin(Stdio::from(fs::File::open(&out)?))
-            .status();
-    }
+    copy_screenshot(cfg, &out);
 
     write_last("screenshot", &out)?;
     clear_chooser();
@@ -282,7 +304,6 @@ fn screenshot_region(cfg: &Config, geometry: Option<String>) -> Result<PathBuf> 
 
 fn screenshot_fullscreen(cfg: &Config) -> Result<PathBuf> {
     let grim = require_bin("grim")?;
-    let wl_copy = require_bin("wl-copy")?;
     let dir = cfg.screenshot_dir();
     ensure_dir(&dir)?;
     let out = unique_path(&dir, "Screenshot", "png");
@@ -290,15 +311,12 @@ fn screenshot_fullscreen(cfg: &Config) -> Result<PathBuf> {
     if !status.success() || !out.exists() {
         bail!("grim failed");
     }
-    if cfg.screenshot.copy_to_clipboard {
-        let _ = Command::new(&wl_copy)
-            .args(["-t", "image/png"])
-            .stdin(Stdio::from(fs::File::open(&out)?))
-            .status();
-    }
+    copy_screenshot(cfg, &out);
     write_last("screenshot", &out)?;
     if cfg.preview.enabled {
-        let _ = Command::new(sibling_bin("matrixshot-preview")).arg(&out).spawn();
+        let _ = Command::new(sibling_bin("matrixshot-preview"))
+            .arg(&out)
+            .spawn();
     }
     println!("{}", out.display());
     Ok(out)
@@ -329,7 +347,9 @@ fn record_status() -> Result<()> {
     } else {
         println!("not recording (stale pid)");
         let _ = fs::remove_file(pidf);
-        let _ = Command::new(sibling_bin("matrixshot-rec-ui")).arg("stop").status();
+        let _ = Command::new(sibling_bin("matrixshot-rec-ui"))
+            .arg("stop")
+            .status();
     }
     Ok(())
 }
@@ -342,7 +362,9 @@ fn record_stop() -> Result<()> {
     }
     let pid: i32 = fs::read_to_string(&pidf)?.trim().parse().unwrap_or(0);
     if pid > 0 {
-        let _ = Command::new("kill").args(["-INT", &pid.to_string()]).status();
+        let _ = Command::new("kill")
+            .args(["-INT", &pid.to_string()])
+            .status();
         for _ in 0..50 {
             if !Path::new(&format!("/proc/{pid}")).exists() {
                 break;
@@ -352,7 +374,9 @@ fn record_stop() -> Result<()> {
     }
     let out = fs::read_to_string(record_out_file()).unwrap_or_default();
     let _ = fs::remove_file(&pidf);
-    let _ = Command::new(sibling_bin("matrixshot-rec-ui")).arg("stop").status();
+    let _ = Command::new(sibling_bin("matrixshot-rec-ui"))
+        .arg("stop")
+        .status();
     clear_chooser();
     if !out.trim().is_empty() {
         write_last("recording", Path::new(out.trim()))?;
@@ -362,7 +386,7 @@ fn record_stop() -> Result<()> {
 }
 
 fn resolve_audio(cfg: &Config, override_mode: Option<AudioMode>) -> Option<String> {
-    let mode = override_mode.unwrap_or_else(|| match (cfg.recording.audio, cfg.recording.microphone) {
+    let mode = override_mode.unwrap_or(match (cfg.recording.audio, cfg.recording.microphone) {
         (false, false) => AudioMode::None,
         (true, false) => AudioMode::Desktop,
         (false, true) => AudioMode::Mic,
@@ -492,12 +516,17 @@ fn record_start(cfg: &Config, mode: &str, opts: RecordOpts) -> Result<()> {
     std::thread::sleep(std::time::Duration::from_millis(400));
     if !Path::new(&format!("/proc/{pid}")).exists() {
         let _ = fs::remove_file(record_pid_file());
-        let _ = Command::new(sibling_bin("matrixshot-rec-ui")).arg("stop").status();
+        let _ = Command::new(sibling_bin("matrixshot-rec-ui"))
+            .arg("stop")
+            .status();
         let log_tail = fs::read_to_string(record_log_file()).unwrap_or_default();
         let msg = if log_tail.trim().is_empty() {
             "gpu-screen-recorder exited immediately".to_string()
         } else {
-            format!("gpu-screen-recorder exited immediately:\n{}", log_tail.trim())
+            format!(
+                "gpu-screen-recorder exited immediately:\n{}",
+                log_tail.trim()
+            )
         };
         notify("MatrixShot record failed", &msg);
         bail!("{msg}");
@@ -607,14 +636,7 @@ fn curl_base(curl: &Path) -> Command {
     // Short connect so dead hosts (catbox from many networks) fail fast.
     // No -f: keep response bodies for clear errors (e.g. 0x0 503).
     // -4: prefer IPv4; avoids IPv6 stalls on dual-stack hosts.
-    cmd.args([
-        "-sS",
-        "--connect-timeout",
-        "3",
-        "--max-time",
-        "45",
-        "-4",
-    ]);
+    cmd.args(["-sS", "--connect-timeout", "3", "--max-time", "45", "-4"]);
     cmd
 }
 
@@ -622,7 +644,10 @@ fn parse_http_url(body: &str) -> Option<String> {
     body.lines()
         .map(str::trim)
         .find(|l| l.starts_with("http://") || l.starts_with("https://"))
-        .map(|s| s.trim_end_matches(['\r', '\n', ' ', '\t', '"', '\'']).to_string())
+        .map(|s| {
+            s.trim_end_matches(['\r', '\n', ' ', '\t', '"', '\''])
+                .to_string()
+        })
 }
 
 /// Extract a JSON string value for key `"name"` (tolerates pretty-printed spaces).
@@ -676,7 +701,12 @@ fn parse_imgur_url(body: &str) -> Option<String> {
     json_string_field(body, "link").filter(|s| s.starts_with("http"))
 }
 
-fn upload_one(curl: &Path, provider: &str, path: &Path, imgur_client_id: &str) -> Result<String, String> {
+fn upload_one(
+    curl: &Path,
+    provider: &str,
+    path: &Path,
+    imgur_client_id: &str,
+) -> Result<String, String> {
     let file = path.display().to_string();
     let result = match provider {
         "uguu" | "uguu.se" => curl_base(curl)
@@ -899,7 +929,10 @@ fn main() -> Result<()> {
             let (_k, path) = read_last()?;
             let dir = path.parent().unwrap_or(Path::new("."));
             if which::which("nautilus").is_ok() {
-                let _ = Command::new("nautilus").args(["--select"]).arg(&path).spawn();
+                let _ = Command::new("nautilus")
+                    .args(["--select"])
+                    .arg(&path)
+                    .spawn();
             } else {
                 let _ = Command::new("xdg-open").arg(dir).spawn();
             }
@@ -938,12 +971,22 @@ fn main() -> Result<()> {
                     )?;
                 }
             }
-            RecordCmd::Fullscreen { fps, audio, codec, output_dir } => record_start(
+            RecordCmd::Fullscreen {
+                fps,
+                audio,
+                codec,
+                output_dir,
+            } => record_start(
                 &cfg,
                 "fullscreen",
                 build_record_opts(&cfg, fps, audio, codec, output_dir, None),
             )?,
-            RecordCmd::Monitor { fps, audio, codec, output_dir } => record_start(
+            RecordCmd::Monitor {
+                fps,
+                audio,
+                codec,
+                output_dir,
+            } => record_start(
                 &cfg,
                 "monitor",
                 build_record_opts(&cfg, fps, audio, codec, output_dir, None),

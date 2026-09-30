@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{PathBuf};
+use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub screenshot: Screenshot,
@@ -63,18 +63,6 @@ pub struct Upload {
     pub imgur_client_id: String,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            screenshot: Screenshot::default(),
-            selection: Selection::default(),
-            preview: Preview::default(),
-            viewer: Viewer::default(),
-            recording: Recording::default(),
-            upload: Upload::default(),
-        }
-    }
-}
 impl Default for Screenshot {
     fn default() -> Self {
         Self {

@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+- Honor disabled clipboard copying without requiring wl-copy; warn on copy failure while preserving the capture.
+- Add isolated screenshot CLI regression tests and Rust CI (format, Clippy, tests, release build, CLI smoke).
+- Resolve existing formatting and Clippy findings.
+
 ## 0.2.3 — 2026-09-29
 - Fix upload hangs: parallel race across providers with `--connect-timeout 3` / `--max-time 45` / `-4`
 - Default provider `uguu` (catbox/litterbox often TCP-blackhole; 0x0 currently 503 uploads-disabled)
