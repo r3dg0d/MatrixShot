@@ -55,6 +55,9 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        if self.0.join("state/matrixshot/record.identity").is_file() {
+            let _ = self.run(&["record", "stop"]);
+        }
         let _ = fs::remove_dir_all(&self.0);
     }
 }
@@ -108,4 +111,123 @@ fn failed_capture_does_not_update_last() {
     let output = fixture.run(&["fullscreen"]);
     assert!(!output.status.success());
     assert!(!fixture.0.join("state/matrixshot/last").exists());
+}
+
+#[test]
+fn stale_recorder_pid_does_not_identify_or_signal_an_unrelated_process() {
+    let fixture = Fixture::new(false);
+    let state = fixture.0.join("state/matrixshot");
+    fs::create_dir_all(&state).unwrap();
+    // This is the test process, not a recorder. The fake kill command ensures
+    // the unfixed binary cannot signal it while reproducing the unsafe lookup.
+    fs::write(state.join("record.pid"), std::process::id().to_string()).unwrap();
+    fs::write(state.join("record.out"), "unrelated.mp4").unwrap();
+    fixture.script("kill", "printf called > \"$CLIPBOARD_MARKER\"\n");
+    let status = fixture.run(&["record", "status"]);
+    assert!(status.status.success());
+    assert!(String::from_utf8(status.stdout)
+        .unwrap()
+        .starts_with("not recording"));
+    // Exercise stop directly with a live but mismatched saved identity too.
+    fs::write(state.join("record.pid"), std::process::id().to_string()).unwrap();
+    fs::write(state.join("record.identity"), "different-boot:0").unwrap();
+    let stop = fixture.run(&["record", "stop"]);
+    assert!(stop.status.success());
+    assert!(!fixture.0.join("clipboard-called").exists());
+    assert!(!state.join("last").exists());
+}
+
+fn fake_recorder(fixture: &Fixture, delayed: bool) {
+    let trap = if delayed {
+        "n=0\ntrap 'n=$((n + 1)); if [ \"$n\" -ge 2 ]; then exit 0; fi' INT\n"
+    } else {
+        "trap 'exit 0' INT\n"
+    };
+    fixture.script("gpu-screen-recorder", &format!(
+        "{trap}while [ \"$#\" -gt 0 ]; do\nif [ \"$1\" = -o ]; then shift; printf recorded > \"$1\"; fi\nshift\ndone\nwhile :; do :; done\n"
+    ));
+}
+
+#[test]
+fn recorder_start_stop_preserves_output_and_clears_identity() {
+    let fixture = Fixture::new(false);
+    fake_recorder(&fixture, false);
+    let directory = fixture.0.join("recordings with spaces");
+    let started = fixture.run(&[
+        "record",
+        "fullscreen",
+        "--audio",
+        "none",
+        "--output-dir",
+        directory.to_str().unwrap(),
+    ]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let state = fixture.0.join("state/matrixshot");
+    assert!(state.join("record.identity").is_file());
+    let status = fixture.run(&["record", "status"]);
+    assert!(String::from_utf8(status.stdout)
+        .unwrap()
+        .starts_with("recording pid="));
+    let stopped = fixture.run(&["record", "stop"]);
+    assert!(
+        stopped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&stopped.stderr)
+    );
+    let output = PathBuf::from(String::from_utf8(stopped.stdout).unwrap().trim());
+    assert_eq!(fs::read(output).unwrap(), b"recorded");
+    assert!(state.join("last").is_file());
+    assert!(!state.join("record.pid").exists());
+    assert!(!state.join("record.identity").exists());
+}
+
+#[test]
+fn delayed_shutdown_retains_state_until_process_exit() {
+    let fixture = Fixture::new(false);
+    fake_recorder(&fixture, true);
+    let directory = fixture.0.join("recordings");
+    let started = fixture.run(&[
+        "record",
+        "fullscreen",
+        "--audio",
+        "none",
+        "--output-dir",
+        directory.to_str().unwrap(),
+    ]);
+    assert!(
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
+    );
+    let state = fixture.0.join("state/matrixshot");
+    let first = fixture.run(&["record", "stop"]);
+    assert!(!first.status.success());
+    assert!(String::from_utf8_lossy(&first.stderr).contains("state retained"));
+    assert!(state.join("record.pid").is_file());
+    assert!(state.join("record.identity").is_file());
+    assert!(!state.join("last").exists());
+    let second = fixture.run(&["record", "stop"]);
+    assert!(
+        second.status.success(),
+        "{}",
+        String::from_utf8_lossy(&second.stderr)
+    );
+    assert!(state.join("last").is_file());
+    assert!(!state.join("record.pid").exists());
+}
+
+#[test]
+fn immediate_recorder_exit_is_reported_as_startup_failure() {
+    let fixture = Fixture::new(false);
+    fixture.script("gpu-screen-recorder", "exit 1\n");
+    let output = fixture.run(&["record", "fullscreen", "--audio", "none"]);
+    assert!(!output.status.success());
+    let state = fixture.0.join("state/matrixshot");
+    assert!(!state.join("record.pid").exists());
+    assert!(!state.join("record.identity").exists());
+    assert!(!state.join("last").exists());
 }

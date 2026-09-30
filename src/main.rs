@@ -1,4 +1,5 @@
 mod config;
+mod recorder;
 
 use anyhow::{bail, Context, Result};
 use chrono::Local;
@@ -334,53 +335,68 @@ fn record_log_file() -> PathBuf {
     state_dir().join("record.log")
 }
 
-fn record_status() -> Result<()> {
-    let pidf = record_pid_file();
-    if !pidf.exists() {
-        println!("not recording");
-        return Ok(());
+fn record_identity_file() -> PathBuf {
+    state_dir().join("record.identity")
+}
+
+fn record_handle() -> Result<Option<(u32, recorder::Handle)>> {
+    let pid = fs::read_to_string(record_pid_file())
+        .ok()
+        .and_then(|text| text.trim().parse::<u32>().ok());
+    let identity = fs::read_to_string(record_identity_file()).ok();
+    if let (Some(pid), Some(identity)) = (pid, identity) {
+        return Ok(recorder::Handle::open(pid, &identity)?.map(|handle| (pid, handle)));
     }
-    let pid: i32 = fs::read_to_string(&pidf)?.trim().parse().unwrap_or(0);
-    if pid > 0 && Path::new(&format!("/proc/{pid}")).exists() {
+    Ok(None)
+}
+
+fn clear_record_state() {
+    for path in [record_pid_file(), record_identity_file(), record_out_file()] {
+        let _ = fs::remove_file(path);
+    }
+    let _ = Command::new(sibling_bin("matrixshot-rec-ui"))
+        .arg("stop")
+        .status();
+}
+
+fn record_status() -> Result<()> {
+    if !record_pid_file().exists() {
+        println!("not recording");
+    } else if let Some((pid, _)) = record_handle()? {
         let out = fs::read_to_string(record_out_file()).unwrap_or_default();
         println!("recording pid={pid} out={}", out.trim());
     } else {
-        println!("not recording (stale pid)");
-        let _ = fs::remove_file(pidf);
-        let _ = Command::new(sibling_bin("matrixshot-rec-ui"))
-            .arg("stop")
-            .status();
+        println!("not recording (stale or unverified state; check old recorders manually)");
+        clear_record_state();
     }
     Ok(())
 }
 
 fn record_stop() -> Result<()> {
-    let pidf = record_pid_file();
-    if !pidf.exists() {
-        println!("not recording");
+    let Some((_, handle)) = record_handle()? else {
+        println!("not recording (stale or unverified state; check old recorders manually)");
+        clear_record_state();
         return Ok(());
-    }
-    let pid: i32 = fs::read_to_string(&pidf)?.trim().parse().unwrap_or(0);
-    if pid > 0 {
-        let _ = Command::new("kill")
-            .args(["-INT", &pid.to_string()])
-            .status();
-        for _ in 0..50 {
-            if !Path::new(&format!("/proc/{pid}")).exists() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    handle.interrupt()?;
+    for _ in 0..50 {
+        if handle.exited()? {
+            break;
         }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    if !handle.exited()? {
+        bail!("recorder is still finishing; state retained, try record stop again");
     }
     let out = fs::read_to_string(record_out_file()).unwrap_or_default();
-    let _ = fs::remove_file(&pidf);
-    let _ = Command::new(sibling_bin("matrixshot-rec-ui"))
-        .arg("stop")
-        .status();
+    clear_record_state();
     clear_chooser();
-    if !out.trim().is_empty() {
-        write_last("recording", Path::new(out.trim()))?;
-        println!("{}", out.trim());
+    let path = Path::new(out.trim());
+    if path.is_file() && fs::metadata(path)?.len() > 0 {
+        write_last("recording", path)?;
+        println!("{}", path.display());
+    } else {
+        eprintln!("warning: recorder stopped without a nonempty output file");
     }
     Ok(())
 }
@@ -450,15 +466,11 @@ fn build_record_opts(
 }
 
 fn record_start(cfg: &Config, mode: &str, opts: RecordOpts) -> Result<()> {
+    if record_handle()?.is_some() {
+        bail!("already recording; use matrixshot record stop");
+    }
     if record_pid_file().exists() {
-        let pid: i32 = fs::read_to_string(record_pid_file())
-            .ok()
-            .and_then(|s| s.trim().parse().ok())
-            .unwrap_or(0);
-        if pid > 0 && Path::new(&format!("/proc/{pid}")).exists() {
-            bail!("already recording; use matrixshot record stop");
-        }
-        let _ = fs::remove_file(record_pid_file());
+        clear_record_state();
     }
     let gsr = require_bin("gpu-screen-recorder")?;
     let dir = opts.output_dir;
@@ -503,7 +515,7 @@ fn record_start(cfg: &Config, mode: &str, opts: RecordOpts) -> Result<()> {
         Some(f) => Stdio::from(f),
         None => Stdio::null(),
     };
-    let child = Command::new(&gsr)
+    let mut child = Command::new(&gsr)
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -511,11 +523,27 @@ fn record_start(cfg: &Config, mode: &str, opts: RecordOpts) -> Result<()> {
         .spawn()
         .context("spawn gpu-screen-recorder")?;
     let pid = child.id();
-    fs::write(record_pid_file(), pid.to_string())?;
+    let publish = (|| -> Result<()> {
+        let identity = recorder::token(pid).context("read spawned recorder identity")?;
+        // Confirm pidfd support before publishing a recording we cannot stop safely.
+        if recorder::Handle::open(pid, &identity)?.is_none() {
+            bail!("gpu-screen-recorder exited before startup completed");
+        }
+        fs::write(record_identity_file(), identity)?;
+        fs::write(record_pid_file(), pid.to_string())?;
+        Ok(())
+    })();
+    if let Err(error) = publish {
+        // This is the Child we just spawned, never a PID read from saved state.
+        let _ = child.kill();
+        let _ = child.wait();
+        clear_record_state();
+        return Err(error);
+    }
 
     std::thread::sleep(std::time::Duration::from_millis(400));
-    if !Path::new(&format!("/proc/{pid}")).exists() {
-        let _ = fs::remove_file(record_pid_file());
+    if child.try_wait()?.is_some() {
+        clear_record_state();
         let _ = Command::new(sibling_bin("matrixshot-rec-ui"))
             .arg("stop")
             .status();
@@ -949,14 +977,10 @@ fn main() -> Result<()> {
             RecordCmd::ListAudio => list_audio_devices()?,
             RecordCmd::Toggle => {
                 if record_pid_file().exists() {
-                    let pid: i32 = fs::read_to_string(record_pid_file())
-                        .ok()
-                        .and_then(|s| s.trim().parse().ok())
-                        .unwrap_or(0);
-                    if pid > 0 && Path::new(&format!("/proc/{pid}")).exists() {
+                    if record_handle()?.is_some() {
                         record_stop()?;
                     } else {
-                        let _ = fs::remove_file(record_pid_file());
+                        clear_record_state();
                         record_start(
                             &cfg,
                             "fullscreen",

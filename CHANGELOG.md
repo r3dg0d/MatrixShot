@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased
+- Verify recorder identity and use pidfds before signaling; require Linux 5.3+ for recording.
+- Retain recording state during delayed shutdown; register nonempty output only after exit and report immediate startup failures.
+- Add process identity and isolated recording lifecycle regression tests.
 - Honor disabled clipboard copying without requiring wl-copy; warn on copy failure while preserving the capture.
 - Add isolated screenshot CLI regression tests and Rust CI (format, Clippy, tests, release build, CLI smoke).
 - Resolve existing formatting and Clippy findings.

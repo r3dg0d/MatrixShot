@@ -41,6 +41,19 @@ capture without `wl-copy`. When copying is enabled but unavailable or fails, the
 capture is still saved and registered as the last capture; a warning explains the
 clipboard failure.
 
+## Recording lifecycle
+
+Recording requires Linux 5.3 or newer with pidfd support. MatrixShot saves the
+recorder's boot identity and process start time alongside its PID, then uses a
+pidfd to signal that verified process. Stale or unverified state is cleared
+without signaling the saved PID. After upgrading from a PID-only version, stop
+any existing recorder manually before starting a new session.
+
+`record stop` waits up to five seconds for the recorder to exit. If it is still
+finishing, the command fails and retains state; retry `record stop` later. Only
+after exit is a nonempty output file registered as the last capture. Immediate
+startup failures clear recording state and preserve the previous last capture.
+
 ## Development checks
 
 ```bash
@@ -50,9 +63,10 @@ cargo test --locked
 cargo build --locked --release
 ```
 
-CI runs these checks and CLI smoke tests. Screenshot integration tests use fake
-grim/clipboard commands with isolated config and state directories, so they do
-not require a compositor. Live capture and recording still require Wayland and
+CI runs these checks and CLI smoke tests. Integration tests use fake capture,
+clipboard and recorder commands with isolated config and state directories.
+They cover process identity, startup failure and delayed shutdown without a
+compositor. Live capture and recording still require Wayland and
 the corresponding external tools.
 
 ## Nix packaging
