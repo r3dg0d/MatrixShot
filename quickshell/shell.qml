@@ -217,7 +217,8 @@ Scope {
         visible: root.choosePhase && root.editPath.length === 0
         screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        // Pointer-only chooser: keep the selected window focused and stationary.
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
         exclusiveZone: 0
         color: "transparent"
         anchors { top: true; right: true }

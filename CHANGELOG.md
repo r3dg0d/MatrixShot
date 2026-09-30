@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Keep the selected window focused when clicking the top-right capture chooser.
 - Verify recorder identity and use pidfds before signaling; require Linux 5.3+ for recording.
 - Retain recording state during delayed shutdown; register nonempty output only after exit and report immediate startup failures.
 - Add process identity and isolated recording lifecycle regression tests.
