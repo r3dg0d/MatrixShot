@@ -177,3 +177,71 @@ fn pointer_only_overlays_do_not_take_keyboard_focus() {
         "Escape must release the path field: {path}"
     );
 }
+
+fn editor_source() -> String {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("quickshell/Editor.qml");
+    fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {}: {err}", path.display()))
+}
+
+#[test]
+fn editor_text_field_takes_keyboard_only_while_editing() {
+    let source = editor_source();
+    let focus_lines: Vec<_> = source
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix("WlrLayershell.keyboardFocus:")
+                .map(str::trim)
+        })
+        .map(|expr| expr.trim_end_matches(';').to_string())
+        .collect();
+    assert_eq!(
+        focus_lines.len(),
+        1,
+        "editor must set keyboard focus exactly once, got {focus_lines:?}"
+    );
+    let editor = &focus_lines[0];
+    assert_eq!(
+        idle_keyboard_focus(editor),
+        "WlrKeyboardFocus.None",
+        "editor must idle at pointer-only, got {editor}"
+    );
+    assert!(
+        !editor.contains("OnDemand"),
+        "editor must not sit at OnDemand (a mapped None to OnDemand change does not take Hyprland keys): {editor}"
+    );
+    assert!(
+        editor.starts_with("textInput.activeFocus ? "),
+        "keyboard focus may be taken only while the text tool is editing, got {editor}"
+    );
+    let taken = editor
+        .split_once('?')
+        .and_then(|(_, rest)| rest.split_once(':'))
+        .map(|(taken, _)| taken.trim())
+        .unwrap_or("");
+    assert_eq!(
+        taken, "WlrKeyboardFocus.Exclusive",
+        "Exclusive is the editing exception"
+    );
+    assert!(
+        source
+            .lines()
+            .any(|line| line.trim() == "onVisibleChanged: if (!visible) textInput.focus = false"),
+        "hiding the editor must end the text edit"
+    );
+
+    let text_at = source.find("id: textInput").expect("textInput");
+    let before_text = source[..text_at].trim_end();
+    assert!(
+        before_text
+            .trim_end_matches('{')
+            .trim_end()
+            .ends_with("TextInput"),
+        "annotation text tool must stay a TextInput"
+    );
+    let field = object_with_id(&source, "textInput");
+    assert!(
+        field.matches("focus = false").count() >= 2,
+        "Enter and Escape must release the text field: {field}"
+    );
+}

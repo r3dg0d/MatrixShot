@@ -16,7 +16,11 @@ PanelWindow {
     visible: imagePath.length > 0
     screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+    // Idle is pointer-only. Exclusive only while the text tool is editing:
+    // Hyprland does not grant keys when a mapped layer changes None to OnDemand.
+    // Enter, Escape, or hiding the editor returns this to None.
+    WlrLayershell.keyboardFocus: textInput.activeFocus ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    onVisibleChanged: if (!visible) textInput.focus = false
     exclusiveZone: 0
     color: theme.overlay
     anchors {
@@ -414,16 +418,19 @@ PanelWindow {
                             width: 280
                             selectionColor: "#003300"
                             selectedTextColor: theme.phosphor
+                            // Enter or Escape ends the edit so the layer returns to None.
                             onAccepted: {
                                 if (text.length > 0) {
                                     pushStroke({ tool: "text", color: ink.toString(), width: penWidth, x: x, y: y + 18, text: text })
                                 }
                                 visible = false
                                 text = ""
+                                focus = false
                             }
                             Keys.onEscapePressed: {
                                 visible = false
                                 text = ""
+                                focus = false
                             }
                         }
                     }
@@ -443,6 +450,7 @@ PanelWindow {
             if (event.key === Qt.Key_Escape) {
                 if (textInput.visible) {
                     textInput.visible = false
+                    textInput.focus = false
                     event.accepted = true
                     return
                 }
