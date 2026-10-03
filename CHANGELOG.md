@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Keep the selected window focused when using the screen-record config.
 - Freeze the selected region before the chooser opens, and save or discard that snapshot instead of recapturing live pixels.
 - Prefer the sibling `matrixshot-ui` launcher, and honor `XDG_STATE_HOME` for overlay state.
 - Keep the selected window focused when clicking the top-right capture chooser.
