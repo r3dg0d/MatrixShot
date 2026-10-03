@@ -11,4 +11,8 @@ case "${1:-}" in
     ;;
   *) echo "usage: matrixshot-rec-ui start|stop [path]"; exit 1 ;;
 esac
-matrixshot-ui ensure || true
+# Resolve the matching local launcher before PATH can select an older Nix package.
+ui="$(dirname "${BASH_SOURCE[0]}")/matrixshot-ui"
+if [[ -x "$ui" ]]; then "$ui" ensure || true
+else matrixshot-ui ensure || true
+fi

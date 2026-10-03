@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Record-config output path takes keyboard focus only while that field is editing, then returns the layer to pointer-only.
+- Keep the selected window focused when using the screen-record config.
+- Freeze the selected region before the chooser opens, and save or discard that snapshot instead of recapturing live pixels.
+- Prefer the sibling `matrixshot-ui` launcher, and honor `XDG_STATE_HOME` for overlay state.
 - Keep the selected window focused when clicking the top-right capture chooser.
 - Verify recorder identity and use pidfds before signaling; require Linux 5.3+ for recording.
 - Retain recording state during delayed shutdown; register nonempty output only after exit and report immediate startup failures.
