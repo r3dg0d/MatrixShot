@@ -25,7 +25,8 @@ Scope {
         return homeBin
     }
     readonly property string iconDir: Qt.resolvedUrl("./icons/")
-    readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/matrixshot"
+    readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") ||
+        Quickshell.env("HOME") + "/.local/state") + "/matrixshot"
     readonly property bool chooserOpen: !!(root.chooser && root.chooser.geometry && root.chooser.phase)
     readonly property bool choosePhase: root.chooserOpen && root.chooser.phase === "choose"
     readonly property bool recordConfigPhase: root.chooserOpen && root.chooser.phase === "record-config"
@@ -115,8 +116,12 @@ Scope {
     }
 
     function dismissChooser() {
+        const snapshot = root.chooser.snapshot
         root.chooser = ({})
-        Quickshell.execDetached(["rm", "-f", root.stateDir + "/chooser.json"])
+        if (snapshot)
+            Quickshell.execDetached([root.bin, "selection", snapshot, "--discard"])
+        else
+            Quickshell.execDetached(["rm", "-f", root.stateDir + "/chooser.json"])
     }
 
     function setChooserPhase(phase) {
@@ -124,19 +129,23 @@ Scope {
         const body = JSON.stringify({
             geometry: root.chooser.geometry,
             phase: phase,
+            snapshot: root.chooser.snapshot || "",
             ts: Math.floor(Date.now() / 1000)
         })
         Quickshell.execDetached(["bash", "-lc",
             "printf '%s\\n' " + JSON.stringify(body) + " > \"" + root.stateDir + "/chooser.json\""
         ])
-        root.chooser = ({ geometry: root.chooser.geometry, phase: phase })
+        root.chooser = ({ geometry: root.chooser.geometry, phase: phase, snapshot: root.chooser.snapshot })
         if (phase === "record-config") root.loadAudioDevices()
     }
 
     function doScreenshot() {
         const g = root.chooser.geometry
         if (!g) return
-        Quickshell.execDetached([root.bin, "region", "--geometry", g])
+        // Save the selection-time pixels; unmapping this panel can change
+        // Hyprland pointer focus and rearrange the live screen.
+        if (!root.chooser.snapshot) return
+        Quickshell.execDetached([root.bin, "selection", root.chooser.snapshot])
         root.chooser = ({})
     }
 
@@ -305,7 +314,12 @@ Scope {
         visible: root.recordConfigPhase && root.editPath.length === 0
         screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        // Idle is pointer-only so the capture target keeps the keyboard.
+        // Exclusive only while the output path is editing: Hyprland does not
+        // grant keys when a mapped layer changes None to OnDemand.
+        // Enter, Escape, hide, or leaving the field returns this to None.
+        WlrLayershell.keyboardFocus: recPathInput.activeFocus ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        onVisibleChanged: if (!visible) recPathInput.focus = false
         exclusiveZone: 0
         color: "transparent"
         anchors { top: true; right: true }
@@ -471,6 +485,7 @@ Scope {
                     border.color: theme.border
                     border.width: 1
                     TextInput {
+                        id: recPathInput
                         anchors.fill: parent
                         anchors.margins: 8
                         text: root.recOutDir
@@ -480,6 +495,9 @@ Scope {
                         clip: true
                         selectByMouse: true
                         onTextChanged: root.recOutDir = text
+                        // Enter or Escape ends the edit so the layer returns to None.
+                        onAccepted: focus = false
+                        Keys.onEscapePressed: focus = false
                     }
                 }
 

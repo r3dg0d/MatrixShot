@@ -231,3 +231,80 @@ fn immediate_recorder_exit_is_reported_as_startup_failure() {
     assert!(!state.join("record.identity").exists());
     assert!(!state.join("last").exists());
 }
+
+#[test]
+fn choose_freezes_pixels_and_selection_saves_or_discards_them() {
+    let fixture = Fixture::new(true);
+    fixture.script("slurp", "printf '%s\\n' '10,20 30x40'\n");
+    fixture.script(
+        "grim",
+        "geom=\nout=\nwhile [ \"$#\" -gt 0 ]; do\ncase \"$1\" in\n-g) shift; geom=$1 ;;\n*) out=$1 ;;\nesac\nshift\ndone\nprintf 'frozen:%s' \"$geom\" > \"$out\"\n",
+    );
+    fixture.script("wl-copy", "printf called > \"$CLIPBOARD_MARKER\"\n");
+
+    let chosen = fixture.run(&["choose"]);
+    assert!(
+        chosen.status.success(),
+        "{}",
+        String::from_utf8_lossy(&chosen.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(chosen.stdout).unwrap().trim(),
+        "10,20 30x40"
+    );
+    let state = fixture.0.join("state/matrixshot");
+    let token = snapshot_token(&fs::read_to_string(state.join("chooser.json")).unwrap());
+    let pending = state.join("pending-selection").join(format!("{token}.png"));
+    assert_eq!(fs::read(&pending).unwrap(), b"frozen:10,20 30x40");
+
+    let escaped = fixture.run(&["selection", "../outside"]);
+    assert!(!escaped.status.success());
+    assert!(pending.is_file());
+    let missing = fixture.run(&["selection", "1-2"]);
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("selection expired"));
+    assert!(pending.is_file());
+
+    let saved = fixture.run(&["selection", &token]);
+    assert!(
+        saved.status.success(),
+        "{}",
+        String::from_utf8_lossy(&saved.stderr)
+    );
+    let path = PathBuf::from(String::from_utf8(saved.stdout).unwrap().trim());
+    assert_eq!(fs::read(&path).unwrap(), b"frozen:10,20 30x40");
+    assert_eq!(
+        fs::read(fixture.0.join("clipboard-called")).unwrap(),
+        b"called"
+    );
+    assert!(!state.join("pending-selection").exists());
+    assert!(!state.join("chooser.json").exists());
+    fs::remove_file(fixture.0.join("clipboard-called")).unwrap();
+
+    let again = fixture.run(&["choose"]);
+    assert!(
+        again.status.success(),
+        "{}",
+        String::from_utf8_lossy(&again.stderr)
+    );
+    let token = snapshot_token(&fs::read_to_string(state.join("chooser.json")).unwrap());
+    let discarded = fixture.run(&["selection", &token, "--discard"]);
+    assert!(discarded.status.success());
+    assert!(discarded.stdout.is_empty());
+    assert!(!state.join("pending-selection").exists());
+    assert!(!fixture.0.join("clipboard-called").exists());
+    assert!(fs::read_to_string(state.join("last"))
+        .unwrap()
+        .contains(path.to_str().unwrap()));
+}
+
+fn snapshot_token(chooser: &str) -> String {
+    let marker = "\"snapshot\":\"";
+    let start = chooser.find(marker).expect("chooser snapshot") + marker.len();
+    let end = start + chooser[start..].find('"').expect("snapshot end");
+    let token = chooser[start..end].to_string();
+    assert!(
+        !token.is_empty() && token.bytes().all(|c| c.is_ascii_digit() || c == b'-'),
+        "{token}"
+    );
+    token
+}
