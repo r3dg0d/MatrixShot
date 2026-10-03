@@ -30,6 +30,13 @@ enum Cmd {
         #[arg(long)]
         geometry: Option<String>,
     },
+    /// Save or discard the pixels frozen by the capture chooser
+    Selection {
+        /// Opaque snapshot identifier supplied by the chooser
+        token: String,
+        #[arg(long)]
+        discard: bool,
+    },
     /// Fullscreen / focused output screenshot
     Fullscreen,
     /// Open last screenshot with configured viewer
@@ -214,13 +221,14 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-fn write_chooser(geometry: &str, phase: &str) -> Result<()> {
+fn write_chooser(geometry: &str, phase: &str, snapshot: &str) -> Result<()> {
     let d = state_dir();
     ensure_dir(&d)?;
     let body = format!(
-        "{{\"geometry\":{},\"phase\":{},\"ts\":{}}}",
+        "{{\"geometry\":{},\"phase\":{},\"snapshot\":{},\"ts\":{}}}",
         serde_json_str(geometry),
         serde_json_str(phase),
+        serde_json_str(snapshot),
         now_secs()
     );
     fs::write(d.join("chooser.json"), body)?;
@@ -229,11 +237,41 @@ fn write_chooser(geometry: &str, phase: &str) -> Result<()> {
 
 fn clear_chooser() {
     let _ = fs::remove_file(state_dir().join("chooser.json"));
+    let _ = fs::remove_dir_all(state_dir().join("pending-selection"));
 }
 
 fn choose_flow(cfg: &Config) -> Result<()> {
+    clear_chooser();
     let region = run_slurp(cfg)?;
-    write_chooser(&region, "choose")?;
+    // Freeze before showing any chooser surface. Pointer focus and tiling may
+    // change afterwards, but the Screenshot button must save these pixels.
+    let grim = require_bin("grim")?;
+    let pending = state_dir().join("pending-selection");
+    ensure_dir(&pending)?;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    fs::set_permissions(&pending, fs::Permissions::from_mode(0o700))?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_nanos();
+    let token = format!("{}-{nanos}", std::process::id());
+    let snapshot = selection_path(&token)?;
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&snapshot)?;
+    let capture = Command::new(grim)
+        .args(["-g", &to_grim_region(&region)])
+        .arg(&snapshot)
+        .status();
+    if !capture.is_ok_and(|status| status.success()) || fs::metadata(&snapshot)?.len() == 0 {
+        clear_chooser();
+        bail!("grim failed to freeze the selected region");
+    }
+    if let Err(error) = write_chooser(&region, "choose", &token) {
+        clear_chooser();
+        return Err(error);
+    }
     ensure_overlay();
     println!("{region}");
     Ok(())
@@ -280,19 +318,50 @@ fn screenshot_with_geometry(cfg: &Config, region: &str) -> Result<PathBuf> {
         bail!("grim failed");
     }
 
-    copy_screenshot(cfg, &out);
+    finish_screenshot(cfg, &out)?;
+    Ok(out)
+}
 
-    write_last("screenshot", &out)?;
+fn selection_path(token: &str) -> Result<PathBuf> {
+    // A chooser cannot ask us to copy or delete a path outside our private cache.
+    if token.is_empty() || !token.bytes().all(|c| c.is_ascii_digit() || c == b'-') {
+        bail!("invalid selection identifier");
+    }
+    Ok(state_dir()
+        .join("pending-selection")
+        .join(format!("{token}.png")))
+}
+
+fn screenshot_selection(cfg: &Config, token: &str, discard: bool) -> Result<()> {
+    let snapshot = selection_path(token)?;
+    // Never fall back to a live capture: a missing snapshot requires reselecting.
+    if !snapshot.is_file() || fs::metadata(&snapshot)?.len() == 0 {
+        bail!("selection expired; select the region again");
+    }
+    if discard {
+        clear_chooser();
+        return Ok(());
+    }
+    let dir = cfg.screenshot_dir();
+    ensure_dir(&dir)?;
+    let out = unique_path(&dir, "Screenshot", "png");
+    fs::copy(&snapshot, &out).context("save selected screenshot")?;
+    finish_screenshot(cfg, &out)
+}
+
+fn finish_screenshot(cfg: &Config, out: &Path) -> Result<()> {
+    copy_screenshot(cfg, out);
+    write_last("screenshot", out)?;
     clear_chooser();
     if cfg.preview.enabled {
         let _ = Command::new(sibling_bin("matrixshot-preview"))
-            .arg(&out)
+            .arg(out)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn();
     }
     println!("{}", out.display());
-    Ok(out)
+    Ok(())
 }
 
 fn screenshot_region(cfg: &Config, geometry: Option<String>) -> Result<PathBuf> {
@@ -945,6 +1014,9 @@ fn main() -> Result<()> {
         }
         Cmd::Region { geometry } => {
             screenshot_region(&cfg, geometry)?;
+        }
+        Cmd::Selection { token, discard } => {
+            screenshot_selection(&cfg, &token, discard)?;
         }
         Cmd::Fullscreen => {
             screenshot_fullscreen(&cfg)?;

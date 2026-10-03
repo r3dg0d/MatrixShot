@@ -25,7 +25,8 @@ Scope {
         return homeBin
     }
     readonly property string iconDir: Qt.resolvedUrl("./icons/")
-    readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/matrixshot"
+    readonly property string stateDir: (Quickshell.env("XDG_STATE_HOME") ||
+        Quickshell.env("HOME") + "/.local/state") + "/matrixshot"
     readonly property bool chooserOpen: !!(root.chooser && root.chooser.geometry && root.chooser.phase)
     readonly property bool choosePhase: root.chooserOpen && root.chooser.phase === "choose"
     readonly property bool recordConfigPhase: root.chooserOpen && root.chooser.phase === "record-config"
@@ -115,8 +116,12 @@ Scope {
     }
 
     function dismissChooser() {
+        const snapshot = root.chooser.snapshot
         root.chooser = ({})
-        Quickshell.execDetached(["rm", "-f", root.stateDir + "/chooser.json"])
+        if (snapshot)
+            Quickshell.execDetached([root.bin, "selection", snapshot, "--discard"])
+        else
+            Quickshell.execDetached(["rm", "-f", root.stateDir + "/chooser.json"])
     }
 
     function setChooserPhase(phase) {
@@ -124,19 +129,23 @@ Scope {
         const body = JSON.stringify({
             geometry: root.chooser.geometry,
             phase: phase,
+            snapshot: root.chooser.snapshot || "",
             ts: Math.floor(Date.now() / 1000)
         })
         Quickshell.execDetached(["bash", "-lc",
             "printf '%s\\n' " + JSON.stringify(body) + " > \"" + root.stateDir + "/chooser.json\""
         ])
-        root.chooser = ({ geometry: root.chooser.geometry, phase: phase })
+        root.chooser = ({ geometry: root.chooser.geometry, phase: phase, snapshot: root.chooser.snapshot })
         if (phase === "record-config") root.loadAudioDevices()
     }
 
     function doScreenshot() {
         const g = root.chooser.geometry
         if (!g) return
-        Quickshell.execDetached([root.bin, "region", "--geometry", g])
+        // Save the selection-time pixels; unmapping this panel can change
+        // Hyprland pointer focus and rearrange the live screen.
+        if (!root.chooser.snapshot) return
+        Quickshell.execDetached([root.bin, "selection", root.chooser.snapshot])
         root.chooser = ({})
     }
 

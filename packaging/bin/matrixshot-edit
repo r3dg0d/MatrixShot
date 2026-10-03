@@ -5,4 +5,8 @@ path="${1:-}"
 state="${XDG_STATE_HOME:-$HOME/.local/state}/matrixshot"
 mkdir -p "$state"
 printf '{"path":"%s"}\n' "$path" >"$state/edit.json"
-matrixshot-ui ensure || true
+# Resolve the matching local launcher before PATH can select an older Nix package.
+ui="$(dirname "${BASH_SOURCE[0]}")/matrixshot-ui"
+if [[ -x "$ui" ]]; then "$ui" ensure || true
+else matrixshot-ui ensure || true
+fi
