@@ -314,8 +314,12 @@ Scope {
         visible: root.recordConfigPhase && root.editPath.length === 0
         screen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
         WlrLayershell.layer: WlrLayer.Overlay
-        // Pointer-only config: keep the selected window focused and stationary.
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+        // Idle is pointer-only so the capture target keeps the keyboard.
+        // Exclusive only while the output path is editing: Hyprland does not
+        // grant keys when a mapped layer changes None to OnDemand.
+        // Enter, Escape, hide, or leaving the field returns this to None.
+        WlrLayershell.keyboardFocus: recPathInput.activeFocus ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        onVisibleChanged: if (!visible) recPathInput.focus = false
         exclusiveZone: 0
         color: "transparent"
         anchors { top: true; right: true }
@@ -481,6 +485,7 @@ Scope {
                     border.color: theme.border
                     border.width: 1
                     TextInput {
+                        id: recPathInput
                         anchors.fill: parent
                         anchors.margins: 8
                         text: root.recOutDir
@@ -490,6 +495,9 @@ Scope {
                         clip: true
                         selectByMouse: true
                         onTextChanged: root.recOutDir = text
+                        // Enter or Escape ends the edit so the layer returns to None.
+                        onAccepted: focus = false
+                        Keys.onEscapePressed: focus = false
                     }
                 }
 

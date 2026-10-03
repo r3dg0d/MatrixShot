@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+- Record-config output path takes keyboard focus only while that field is editing, then returns the layer to pointer-only.
 - Keep the selected window focused when using the screen-record config.
 - Freeze the selected region before the chooser opens, and save or discard that snapshot instead of recapturing live pixels.
 - Prefer the sibling `matrixshot-ui` launcher, and honor `XDG_STATE_HOME` for overlay state.
